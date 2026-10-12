@@ -3,12 +3,17 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 2A. Implemented: `/prepare-interview` (requirements gathering and
-> confirmation only), the `requirements-formalizer` subagent, and `scripts/state.ps1`
-> (state init/update, which requires PowerShell 7+). Everything after requirements
-> formalization (research, planning, validation agents, approval, HTML), along with skills,
-> hooks, and MCP configuration, is **not implemented yet**. Do not describe it as working
-> until it exists and has been exercised.
+> **Status:** Phase 2B. Implemented: `/prepare-interview` (requirements, then dynamic
+> selection and parallel execution of research agents), the `requirements-formalizer`,
+> `dotnet-researcher`, `data-researcher`, and `architecture-researcher` subagents, and
+> `scripts/state.ps1` (state init/select/update with locking, which requires PowerShell 7+).
+> The Microsoft Learn MCP server is configured in `.mcp.json` (§9.1). Plan synthesis, plan
+> validation, approval, HTML, skills, and hooks are **not implemented yet**. Parallel
+> research with real Microsoft Learn MCP calls was exercised end to end on 2026-10-12
+> (see README). Not implemented yet: a global cross-agent coverage gate, downstream
+> invalidation and resume (§5.2, §7 describe the target design), and hooks that enforce
+> artifact ownership and approval.
+> Do not describe anything as working until it exists and has been exercised.
 
 ---
 
@@ -110,6 +115,25 @@ Subagents are chosen **from the gathered requirements**, not from a fixed list. 
 The coordinator writes the selection and a one-line reason for each agent into
 `state.json` (`selected_agents`). That way the choice is auditable and survives a resume.
 
+### 3.1 Research agents (implemented)
+
+| Agent | Area | Artifact |
+|---|---|---|
+| `dotnet-researcher` | C#, .NET runtime, async/await, concurrency, ASP.NET Core | `research/dotnet.md` |
+| `data-researcher` | EF Core, SQL, query optimization, data access | `research/data.md` |
+| `architecture-researcher` | System design, architecture, distributed systems | `research/architecture.md` |
+
+- The coordinator maps each researchable gap or requested topic to **exactly one** agent.
+  An agent is selected only if at least one topic maps to it. Strengths alone never
+  select an agent.
+- The selection is written to `research-selection.json` and recorded with
+  `state.ps1 select`. That records `research.selected_agents` (agent, topics, reason) and
+  `research.not_selected` (agent, reason), and creates one `research-<area>` step per
+  selected agent. Every registered agent must appear in one of the two lists.
+- The agent registry (agent → area → artifact path) lives in `scripts/state.ps1`. Adding a
+  research agent means adding it there, in `.claude/agents/`, and in the coordinator's
+  selection table.
+
 ---
 
 ## 4. Execution rules: sequential vs. parallel
@@ -126,6 +150,11 @@ The coordinator writes the selection and a one-line reason for each agent into
 
 **Parallel:** independent research subagents (one per topic area) may run at the same
 time. They must write to distinct output paths and must not read each other's output.
+The coordinator launches them with several `Agent` tool calls in **one** message, and the
+research phase ends only when every selected step is `passed` or out of attempts. Each
+step is gated and retried on its own: a failure in one never re-runs, overwrites, or
+blocks another. `state.ps1` holds a per-run lock (`state.lock`) around each state update,
+so parallel completions cannot lose writes.
 
 **Rule of thumb:** run in parallel only when the tasks share no inputs that another task
 in the same batch produces, and write to disjoint paths. Otherwise run them in sequence.
@@ -158,7 +187,10 @@ runs/<run-id>/
   state.json                 # owner: coordinator (written via scripts/state.ps1)
   confirmed-input.md         # owner: coordinator (requirements exactly as the user confirmed them)
   requirements.md            # owner: requirements-formalizer subagent
-  research/<topic>.md        # owner: the research subagent for <topic>
+  research-selection.json    # owner: coordinator (selected / not-selected agents with reasons)
+  research/dotnet.md         # owner: dotnet-researcher
+  research/data.md           # owner: data-researcher
+  research/architecture.md   # owner: architecture-researcher
   plan.md                    # owner: plan-author subagent
   validation/<artifact>.json # owner: validator (subagent or script)
   approval.json              # owner: coordinator (records the human decision)
@@ -181,12 +213,12 @@ covers), it puts them in a small YAML front-matter block rather than in a separa
 Artifacts form a dependency chain:
 
 ```
-confirmed-input.md → requirements.md → research/<topic>.md → plan.md → validation/plan.json → approval.json → guide.html
+confirmed-input.md → requirements.md → research/<area>.md → plan.md → validation/plan.json → approval.json → guide.html
 ```
 
 - **Changing an upstream artifact invalidates every artifact downstream of it.** If
   `requirements.md` changes, all research, the plan, the validations, the approval, and the
-  guide are stale. If one `research/<topic>.md` changes, the plan and everything after it are
+  guide are stale. If one `research/<area>.md` changes, the plan and everything after it are
   stale; research on other topics is not.
 - `state.json` records the content hash of each input an artifact was built from. On resume,
   or after any change, the coordinator compares hashes and resets stale steps to `pending`.
@@ -268,18 +300,82 @@ Retry policy:
   release notes) are preferred.
 - Every research artifact lists the sources it used. Unsourced claims fail the grounding
   gate.
-- MCP servers are configured in a project-level config in a later phase. Credentials are
-  **never** committed. They come from the environment or from local, git-ignored files.
-- If an external tool is unavailable, the subagent must say so in its artifact rather than
-  fabricate sources.
+- MCP servers are configured in the project-level `.mcp.json`. Credentials are **never**
+  committed. They come from the environment or from local, git-ignored files. The
+  Microsoft Learn server needs no credentials.
+- If an external tool is unavailable, the subagent must say so rather than fabricate
+  sources. If **no** research tool works (MCP, `WebSearch`, and `WebFetch` all failing), a
+  research agent writes nothing and replies `FAILED: TOOLS_UNAVAILABLE`. The coordinator
+  records that as a non-retryable failure (`state.ps1 fail -NoRetry`). Partial outages are
+  listed under the artifact's *Gaps and Limitations*.
+- Research gate (deterministic): required headings, one `### <topic>` per assigned topic,
+  at least 3 distinct URLs under `## Sources`, and at least one `learn.microsoft.com` URL
+  for the `dotnet` and `data` areas. The coordinator also spot-checks up to 2 URLs per
+  artifact (Microsoft Learn URLs via `microsoft_docs_fetch`).
+
+### 9.1 Microsoft Learn MCP server
+
+- Config: `.mcp.json` declares server `microsoft-learn`, an HTTP server at
+  `https://learn.microsoft.com/api/mcp`. It is public and needs no authentication.
+- Tools discovered (exact names):
+
+  | Tool | Purpose |
+  |---|---|
+  | `mcp__microsoft-learn__microsoft_docs_search` | Search official Microsoft/Azure docs; returns title, excerpt, and `contentUrl` |
+  | `mcp__microsoft-learn__microsoft_docs_fetch` | Fetch a Microsoft Learn page as Markdown |
+  | `mcp__microsoft-learn__microsoft_code_sample_search` | Search official Microsoft code samples |
+
+- All three research agents list these tools in their `tools:` frontmatter, alongside
+  `WebSearch`/`WebFetch` for non-Microsoft sources.
+- Project `.mcp.json` servers need **per-user approval** before Claude Code connects. Approve
+  the server when `claude` prompts, or add `"enabledMcpjsonServers": ["microsoft-learn"]` to
+  your own `.claude/settings.local.json` (git-ignored). The shared settings deliberately do
+  not auto-approve MCP servers.
+
+### 9.2 Research tool permissions
+
+`.claude/settings.json` pre-approves only what background research agents need, because
+background subagents cannot answer permission prompts. Unapproved calls are denied, not
+asked.
+
+| Allowed without a prompt | Why |
+|---|---|
+| The 3 `mcp__microsoft-learn__*` tools | Read-only search and fetch of official docs |
+| `WebSearch` | Finds non-Microsoft sources. Permission rules cannot scope it by domain. |
+| `WebFetch(domain:...)` for `learn.microsoft.com`, `devblogs.microsoft.com`, `github.com`, `martinfowler.com`, `microservices.io` | Curated official and expert sources |
+| `Bash(pwsh -NoProfile -File scripts/state.ps1:*)` | The coordinator's state helper |
+
+**Limitation:** a background research agent cannot fetch pages on any other domain. Those
+`WebFetch` calls are denied. The agent must record the denial under *Gaps and Limitations*
+and must not cite what it could not read. To widen access, add specific
+`WebFetch(domain:<host>)` rules, never a bare `WebFetch`. Large tool results (e.g. a long
+`microsoft_docs_fetch` page) are saved by Claude Code to a file under `~/.claude/projects/`,
+and agents may read those files.
+
+### 9.3 Verification and troubleshooting
+
+```
+claude mcp get microsoft-learn     # expect: Status: ✔ Connected
+claude mcp list                    # health-checks all configured servers
+```
+
+Inside a session, `/mcp` shows the server and its tools.
+
+| Symptom | Fix |
+|---|---|
+| `⏸ Pending approval` | Run `claude` in the repo and approve the server, or add `enabledMcpjsonServers` to `.claude/settings.local.json` |
+| `✘ Failed to connect` | Check network or proxy access to `https://learn.microsoft.com/api/mcp`. Corporate proxies may need `HTTPS_PROXY`. |
+| Research agent reports MCP tools missing | The session started before `.mcp.json` existed or before approval. Start a new session. |
+| `WebFetch` denied in a research artifact's *Gaps* | The domain is not in the allowlist. That is expected. Add a specific domain rule if needed. |
+| Server was renamed | Tool names change with it (`mcp__<server>__<tool>`). Update the agents' `tools:` lists, `settings.json`, and the command's `allowed-tools`. |
 
 ---
 
 ## 10. Repository layout
 
 ```
-.claude/agents/     subagent definitions              (requirements-formalizer)
-.claude/commands/   /prepare-interview command        (Phase 2A scope)
+.claude/agents/     subagent definitions              (requirements + 3 research agents)
+.claude/commands/   /prepare-interview command        (Phase 2B scope)
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
 scripts/            deterministic helpers             (state.ps1)

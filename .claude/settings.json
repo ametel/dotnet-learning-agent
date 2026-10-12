@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__microsoft-learn__microsoft_docs_search",
+      "mcp__microsoft-learn__microsoft_docs_fetch",
+      "mcp__microsoft-learn__microsoft_code_sample_search",
+      "WebSearch",
+      "WebFetch(domain:learn.microsoft.com)",
+      "WebFetch(domain:devblogs.microsoft.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:martinfowler.com)",
+      "WebFetch(domain:microservices.io)",
+      "Bash(pwsh -NoProfile -File scripts/state.ps1:*)"
+    ]
+  }
+}

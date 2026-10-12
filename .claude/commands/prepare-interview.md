@@ -1,16 +1,20 @@
 ---
-description: Start a personalized .NET interview-preparation run (Phase 2A covers requirements gathering and formalization only)
+description: Start a personalized .NET interview-preparation run (currently covers requirements formalization and parallel research only)
 argument-hint: <describe your target role, seniority, timeline, and weak areas>
-allowed-tools: Agent, AskUserQuestion, Read, Write, Bash(pwsh -NoProfile -File scripts/state.ps1:*)
+allowed-tools: Agent, AskUserQuestion, Read, Write, WebFetch(domain:learn.microsoft.com), mcp__microsoft-learn__microsoft_docs_fetch, Bash(pwsh -NoProfile -File scripts/state.ps1:*)
 ---
 
 You are the **coordinator** (hub) of the dotnet-learning-agent workflow. Follow `CLAUDE.md`.
 You talk to the user, own `state.json` and `confirmed-input.md`, and delegate specialist
 work to subagents. You never write a subagent's artifact yourself.
 
-**Phase 2A scope:** this command only gathers and formalizes requirements, then stops.
-Research, planning, validation agents, approval, and HTML are not implemented yet. Do not
+**Current scope (Phase 2B):** gather and formalize requirements (Steps 1–6), select
+research agents dynamically and run them in parallel (Steps 7–10), then stop (Step 11).
+Study-plan synthesis, plan validation, approval, and HTML are not implemented yet. Do not
 attempt them, and do not suggest they ran.
+
+Files you write by hand: only `confirmed-input.md` and `research-selection.json`. State
+changes go through `scripts/state.ps1`. Every other artifact belongs to a subagent.
 
 The user's initial request:
 
@@ -69,8 +73,7 @@ Show the user a concise summary of every field: the values they gave, `Unspecifi
    Note the `run_id`, `confirmed_input`, and `requirements_path` it prints.
 2. With `Write`, save the confirmed summary from Step 3 verbatim to the `confirmed_input`
    path. Format it as Markdown with a `# Confirmed Requirements` heading, one `## <Field>`
-   section per field, and a final line `Confirmed by user: yes`. This file is the only
-   artifact you write by hand.
+   section per field, and a final line `Confirmed by user: yes`.
 
 ## Step 5: Delegate to the requirements-formalizer subagent
 
@@ -115,21 +118,139 @@ stop. **Never** write `requirements.md` yourself as a fallback.
    to the user instead of re-running.)
 3. **Targeted retry:** if the gate failed and attempts remain, repeat Step 5 with
    `GATE_FEEDBACK`. The maximum is **3 attempts** in total, and `state.ps1` enforces it.
-   After the 3rd failure, stop and report the failure.
+   After the 3rd failure, stop and report the failure. Do not start research.
 
-## Step 7: Report and stop
+## Step 7: Check blocking questions
+
+The `complete` output and `state.json` include `blocking_open_questions`.
+
+- **0:** continue to Step 8 without asking anything. Non-blocking questions never stop
+  the workflow (CLAUDE.md §4.1).
+- **More than 0:** show the user the `[blocking]` questions from `requirements.md` and ask
+  whether to continue with the labeled assumptions. Continue only on explicit agreement.
+  Otherwise stop, and report the run as paused after requirements.
+
+## Step 8: Select research agents dynamically
+
+Read `requirements.md` (Topics, Knowledge Gaps, Acceptance Criteria, Open Questions and
+Assumptions). Map each topic that needs research to **exactly one** agent:
+
+| Agent | Owns | Typical topics |
+|---|---|---|
+| `dotnet-researcher` | C#, .NET runtime, async/await, threading and concurrency primitives, ASP.NET Core | async/await internals, Task/ValueTask, SynchronizationContext, thread pool, locks, `Channel<T>`, GC, DI, middleware |
+| `data-researcher` | EF Core, SQL, query optimization, transactions, data access | EF Core performance, N+1, tracking, indexes, isolation levels, Dapper/ADO.NET, migrations |
+| `architecture-researcher` | System design, architecture, distributed systems | system design interviews, scalability, caching strategy, messaging/queues, microservices, resilience, consistency |
+
+Selection rules:
+- Select an agent **only** if at least one stated gap or requested topic maps to it.
+  Strengths alone never select an agent.
+- Use the user's topic wording, made specific enough to research (e.g. "concurrency"
+  becomes "Concurrency and thread synchronization in .NET"). Keep each topic a single line.
+- Assign a topic that spans areas by where its interview questions mostly come from. For
+  example, "optimistic concurrency in EF Core" goes to `data-researcher`, not
+  `dotnet-researcher`. Never assign the same topic to two agents.
+- Every agent appears either in `selected` (topics + reason) or in `not_selected`
+  (reason). Reasons are one sentence that cites the requirements.
+- If no topic maps to any agent, stop and tell the user. Do not select an agent "just in
+  case".
+
+Write the selection with `Write` to `runs/<run_id>/research-selection.json` (coordinator-owned):
+
+```json
+{
+  "selected": [
+    { "agent": "data-researcher", "topics": ["EF Core performance"], "reason": "User lists EF Core performance as a knowledge gap." }
+  ],
+  "not_selected": [
+    { "agent": "dotnet-researcher", "reason": "No C#/runtime/ASP.NET Core gap or topic requested." },
+    { "agent": "architecture-researcher", "reason": "No system design or architecture topic requested." }
+  ]
+}
+```
+
+Then record it (it validates the selection and creates one `research-<area>` step per
+selected agent):
+
+```
+pwsh -NoProfile -File scripts/state.ps1 select -RunId <run_id> -SelectionFile runs/<run_id>/research-selection.json
+```
+
+If it prints `"result": "invalid"`, fix the listed errors and run it again.
+
+## Step 9: Run the selected research agents in parallel
+
+1. Run `start` for **every** selected step (each records input hashes and attempt 1):
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 start -RunId <run_id> -Step research-<area>
+   ```
+2. Launch **all** selected agents **in a single message containing one `Agent` tool call
+   per agent**, so they run concurrently. Do not launch one, wait, and then launch the
+   next. Use `subagent_type` = the agent name. Each prompt contains:
+   ```
+   RUN_ID: <run_id>
+   OUTPUT_PATH: runs/<run_id>/research/<area>.md
+   REQUIREMENTS_PATH: runs/<run_id>/requirements.md
+   ASSIGNED_TOPICS:
+   - <topic 1, exactly as recorded in state.json>
+   - <topic 2>
+   REQUIREMENTS:
+   <full text of requirements.md>
+   ```
+   On a retry, also add `GATE_FEEDBACK:` followed by the problems for **that** agent only.
+3. Keep each agent ID from the `Agent` results, for `complete -AgentId`. As with the
+   requirements step, never show agent IDs to the user.
+4. If the `Agent` tool or a subagent type is unavailable, run `fail` for the affected
+   steps with the error and continue with the others. Never write a research file
+   yourself.
+
+## Step 10: Verify each artifact independently
+
+Handle each agent as its completion notification arrives. One agent's result never changes
+another agent's step, and a passed artifact is never re-run or overwritten.
+
+1. If the agent replied `FAILED: TOOLS_UNAVAILABLE...`, record a non-retryable failure:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 fail -RunId <run_id> -Step research-<area> -NoRetry -Reason "<agent's message>"
+   ```
+   Otherwise, if it replied `FAILED: ...` for another reason, record a normal `fail` with
+   that reason.
+2. Otherwise run the deterministic gate. It checks headings, `generated_by`, one
+   `### <topic>` per assigned topic, at least 3 distinct source URLs, a Microsoft Learn
+   source for the `dotnet` and `data` areas, and that `requirements.md` did not change:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step research-<area> -AgentId <agent-id>
+   ```
+3. If the gate passed, `Read` the artifact and check it yourself:
+   - The content addresses the assigned topics at Senior level and follows the learning
+     preferences (exercises and interview questions, not long theory).
+   - **Spot-check up to 2 cited URLs per artifact.** For `learn.microsoft.com` URLs use
+     `mcp__microsoft-learn__microsoft_docs_fetch`. For other domains use `WebFetch`; the
+     user may be asked to approve domains outside the project allowlist. If a URL does not
+     exist or clearly does not support the claim, the artifact has failed grounding.
+
+   Problems found here can no longer be recorded as a gate failure, because the step has
+   already passed. Report them to the user as findings instead.
+4. **Targeted retry:** if a step failed and `attempts_left > 0`, `start` that step again
+   and re-launch **only that agent**, with `GATE_FEEDBACK`. If several steps failed at the
+   same time, launch their retries together in one message. Steps that passed are left
+   untouched.
+5. The research phase is finished only when **every** selected step is either `passed` or
+   out of attempts. Wait for all outstanding agents first. `state.json` then shows
+   `workflow_status` as `paused` (all passed) or `failed` (with `failed_steps`). Successful
+   artifacts are kept in both cases.
+
+## Step 11: Report and stop
 
 Tell the user:
-- the run ID and the path to `requirements.md`,
-- whether the requirements step passed, and on which attempt,
-- that proof of the real delegation is recorded in `state.json`
-  (`steps.requirements.agent_id`, plus the attempt `history`). Point to it, and do not
-  print the ID,
-- **blocking** open questions (essential fields left `Unspecified`), if any, listed in
-  full,
-- **non-blocking** open questions: their count and at most a few of the most useful ones.
-  Say that they will not block planning and that later phases will use the labeled
-  assumptions in the artifact,
-- that the later phases (research, plan, approval, HTML) are not implemented yet.
+- the run ID, and the path to `requirements.md`,
+- **blocking** open questions, if any (as in Step 7), and the count of non-blocking ones,
+  with a few of the most useful,
+- which research agents were selected and why, which were not selected and why,
+- for each selected agent: passed or failed, on which attempt, its artifact path, and its
+  source count. For failures, give the reasons,
+- any issues from your own checks and URL spot-checks,
+- that proof of each real delegation is in `state.json` (`steps.<step>.agent_id` and
+  `history`). Do not print agent IDs,
+- that later phases (study plan, validation, approval, HTML) are not implemented yet.
 
-Then **stop**. Do not continue to research or planning.
+Then **stop**. Do not write a study plan or any other artifact.
