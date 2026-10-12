@@ -10,9 +10,17 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress.** Only Phase 1 is complete: the repository structure and the
-architecture documentation. The agents, the slash command, skills, hooks, and MCP
-configuration have not been implemented yet, so the workflow cannot be run.
+🚧 **Implementation in progress (Phase 2A).** `/prepare-interview` gathers and confirms your
+requirements. It then delegates to the `requirements-formalizer` subagent, which writes
+`runs/<run-id>/requirements.md`, and stops. Research, planning, approval, and HTML
+generation are not implemented yet.
+
+Requires [Claude Code](https://claude.com/claude-code) and PowerShell 7+ (`pwsh`) for the
+state helper `scripts/state.ps1`.
+
+```
+/prepare-interview Senior backend .NET developer, interview in 3 weeks, ~8 h/week, weak on concurrency and EF Core performance
+```
 
 See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 
@@ -20,11 +28,11 @@ See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 
 | Path               | Purpose                                     |
 |--------------------|---------------------------------------------|
-| `.claude/agents/`  | Subagent definitions (planned)              |
-| `.claude/commands/`| `/prepare-interview` command (planned)      |
+| `.claude/agents/`  | Subagent definitions (`requirements-formalizer`) |
+| `.claude/commands/`| `/prepare-interview` command (Phase 2A scope) |
 | `.claude/skills/`  | Reusable skills (planned)                   |
 | `.claude/hooks/`   | Guardrail hooks (planned)                   |
-| `scripts/`         | Deterministic helper scripts (planned)      |
+| `scripts/`         | Deterministic helpers (`state.ps1`)          |
 | `artifacts/`       | Shared reference material (planned)         |
 | `runs/`            | Per-run state and outputs; `runs/demo-*/` is committed |
 | `templates/`       | Final HTML templates (planned)              |

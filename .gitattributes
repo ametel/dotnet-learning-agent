@@ -1,0 +1,22 @@
+# Normalize all text files to LF in the repository and in working copies on every platform.
+* text=auto eol=lf
+
+# Explicit text types
+*.md    text eol=lf
+*.json  text eol=lf
+*.ps1   text eol=lf
+*.sh    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binary files: never convert
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary

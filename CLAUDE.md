@@ -3,9 +3,12 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 1 (repository foundation and documentation). Agents, the slash command,
-> skills, hooks, and MCP configuration described below are **not implemented yet**.
-> Do not describe them as working until they exist and have been exercised.
+> **Status:** Phase 2A. Implemented: `/prepare-interview` (requirements gathering and
+> confirmation only), the `requirements-formalizer` subagent, and `scripts/state.ps1`
+> (state init/update, which requires PowerShell 7+). Everything after requirements
+> formalization (research, planning, validation agents, approval, HTML), along with skills,
+> hooks, and MCP configuration, is **not implemented yet**. Do not describe it as working
+> until it exists and has been exercised.
 
 ---
 
@@ -127,6 +130,20 @@ time. They must write to distinct output paths and must not read each other's ou
 **Rule of thumb:** run in parallel only when the tasks share no inputs that another task
 in the same batch produces, and write to disjoint paths. Otherwise run them in sequence.
 
+### 4.1 Open questions do not block progress
+
+- `requirements.md` tags each open question as `[blocking]` or `[non-blocking]`, and records
+  the count of blocking ones in its front matter (`blocking_open_questions`).
+- **Blocking** questions are essential fields (role or stack, seniority, timeline, time
+  availability, knowledge gaps) that are `Unspecified`. If any exist, the coordinator shows
+  them to the user before planning and may continue with labeled assumptions only if the
+  user agrees.
+- **Non-blocking** questions are unanswered optional fields, vague-but-present values, and
+  derived values. They never stop the workflow. Later phases proceed with the default
+  assumption stated in the artifact and repeat any assumption that influences their output.
+  The coordinator does not re-ask them before planning, but the user may answer them at any
+  time. An answer changes `confirmed-input.md` and triggers invalidation (§5.2).
+
 ---
 
 ## 5. Artifact ownership
@@ -138,8 +155,9 @@ Planned layout of a run (names may be refined during implementation):
 
 ```
 runs/<run-id>/
-  state.json                 # owner: coordinator
-  requirements.md            # owner: requirements subagent
+  state.json                 # owner: coordinator (written via scripts/state.ps1)
+  confirmed-input.md         # owner: coordinator (requirements exactly as the user confirmed them)
+  requirements.md            # owner: requirements-formalizer subagent
   research/<topic>.md        # owner: the research subagent for <topic>
   plan.md                    # owner: plan-author subagent
   validation/<artifact>.json # owner: validator (subagent or script)
@@ -163,7 +181,7 @@ covers), it puts them in a small YAML front-matter block rather than in a separa
 Artifacts form a dependency chain:
 
 ```
-requirements.md → research/<topic>.md → plan.md → validation/plan.json → approval.json → guide.html
+confirmed-input.md → requirements.md → research/<topic>.md → plan.md → validation/plan.json → approval.json → guide.html
 ```
 
 - **Changing an upstream artifact invalidates every artifact downstream of it.** If
@@ -260,11 +278,11 @@ Retry policy:
 ## 10. Repository layout
 
 ```
-.claude/agents/     subagent definitions              (planned)
-.claude/commands/   /prepare-interview command        (planned)
+.claude/agents/     subagent definitions              (requirements-formalizer)
+.claude/commands/   /prepare-interview command        (Phase 2A scope)
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
-scripts/            deterministic helpers             (planned)
+scripts/            deterministic helpers             (state.ps1)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
 templates/          final HTML templates              (planned)
