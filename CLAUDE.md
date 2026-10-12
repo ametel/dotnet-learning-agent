@@ -22,8 +22,13 @@ when implementing or running any part of the workflow.
 > (§9.1). On 2026-10-12, one real run exercised the whole Phase 3A path end to end, from
 > requirements through plan validation. Every step passed on attempt 1. The retry and
 > invalidation paths are covered only by fixture tests, because the real run had no gate
-> failure. **The Phase 3B revision and integrity paths are tested only with fixture
-> artifacts. No real run has exercised them yet.**
+> failure. On the same day, a real run exercised the Phase 3B revision path with live
+> agents. A validated plan was revised from version 1 to version 2: `study-planner` and
+> `quality-validator` were invoked again, research was not re-run, and the original version
+> and revision history were preserved. The revised plan passed the plan gate and plan
+> validation on attempt 1, kept the confirmed 150-minute budget, and left 3 non-blocking
+> advisory findings. **Revision retries, failed revisions, and integrity violations
+> (`resolve`) are still tested only with fixture artifacts.**
 > Not implemented yet: human approval, HTML, resume (§7), hooks, and revisions of anything
 > other than the plan. Known gaps are listed in §6.3.
 > Do not describe anything as working until it exists and has been exercised.
@@ -400,8 +405,9 @@ Advisory findings are never routed. The passing `complete` of a report step prin
 
 ### 6.3 Known limitations (Phase 3B)
 
-- **Not exercised in a real run.** Revisions and integrity checks are tested with fixtures
-  only.
+- **Partly exercised in a real run.** One live revision (v1 → v2) passed on its first
+  attempt, and `verify` found no violations. Revision retries, a revision that runs out of
+  attempts, and integrity violations with `resolve` are tested with fixtures only.
 - **Authorization is recorded, not proven.** `state.ps1` can require an explicit,
   well-formed request that quotes the user's confirmation, but it cannot verify that the
   user actually typed it. The coordinator prompt is the only enforcement.

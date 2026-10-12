@@ -49,6 +49,34 @@ is edited outside the workflow, the run is **blocked**. The edit is never accept
 passed on to later steps. To continue, restore the accepted version, or discard the
 artifact so its owner regenerates it (`state.ps1 resolve`).
 
+### Verified plan revision with live agents (2026-10-12, Phase 3B)
+
+One real `/prepare-interview` run went from requirements through plan validation. The
+user then requested a revision of the validated plan. As before, the run data stays local
+and is not committed.
+
+- **Request:** the user picked the 4 advisory findings from plan validation and confirmed
+  the revision explicitly. `state.ps1 verify` reported no integrity violations, and
+  `state.ps1 revise` opened `rev-001` with `source: advisory`. It archived the request in
+  `revisions/` and invalidated only `plan-validation`.
+- **Regeneration:** `study-planner` was invoked again with the original plan snapshot and
+  the confirmed feedback. The revised plan passed the deterministic gate on attempt 1 as
+  version 2.
+- **Re-validation:** `quality-validator` was invoked again in plan mode with the revision
+  feedback. It passed on attempt 1 with 0 blocking findings, and the revision closed as
+  `completed` with `result_version: 2`.
+- **Not re-run:** research and the coverage gate stayed `passed` and untouched. No new
+  sources were fetched.
+- **Preserved:** version 1 stayed in `versions/plan-v1.md` beside `versions/plan-v2.md`.
+  The step history, the archived request, and every validator report in
+  `validation/history/` were kept.
+- **Budget:** the confirmed 150-minute budget was kept exactly. The plan still has five
+  study days of 30 minutes each.
+- **Remaining:** 3 non-blocking advisory findings, offered as optional further revisions.
+- **Not exercised by this run:** no integrity violation occurred, so `resolve`
+  (`restore`/`discard`) is still tested by fixtures only. No gate failed during the
+  revision, so revision retries are untested with live agents.
+
 ### Verified end-to-end run of Phase 3A (2026-10-12)
 
 One real `/prepare-interview` run with live agents went from requirements through plan
@@ -104,9 +132,9 @@ local (`runs/` is git-ignored), so it is not committed.
 
 - **Only one real Phase 3A run, with no gate failures.** Retries, routing, and
   invalidation have been tested with fixtures only.
-- **Revisions and integrity checks (Phase 3B) have not run with live agents.** They are
-  tested with fixtures only. The prompts for revising and re-validating a plan are
-  untested against a real planner and validator.
+- **Revisions have one real run; integrity resolution has none.** One live revision
+  completed on its first attempt (see above). Revision retries, a failed revision, and
+  integrity violations with `resolve` are tested with fixtures only.
 - **Revision authorization is recorded, not proven.** `state.ps1` requires an explicit
   request from the user that quotes their confirmation, but it cannot verify that the user
   typed it. The coordinator prompt is the enforcement.
