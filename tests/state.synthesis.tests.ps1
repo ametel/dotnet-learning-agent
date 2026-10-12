@@ -276,7 +276,7 @@ Test-Case 'plan validation blames research: research reopens and coverage, plan,
     Assert-Equal 'passed' $s.steps.'research-dotnet'.status
 }
 
-Test-Case 'downstream invalidation: editing an input after a gate passed resets the dependent steps' {
+Test-Case 'downstream invalidation: a re-run upstream step resets its dependents; a stale attempt is not counted' {
     $id = New-ResearchedRun
     Complete-Coverage $id
     Complete-Plan $id
@@ -284,24 +284,30 @@ Test-Case 'downstream invalidation: editing an input after a gate passed resets 
     Write-ValidatorReport -RunId $id -Report plan
     Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'plan-validation')) | Out-Null
 
-    # Editing plan.md after validation voids the validation, not the plan.
-    Add-Content -LiteralPath (Join-Path (Get-RunDir $id) 'plan.md') -Value 'Manual edit.'
-    $r = Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'plan-validation'))
-    Assert-Equal 1 $r.attempt
-    $s = Read-RunState $id
-    Assert-Equal 'passed' $s.steps.plan.status
-    Assert-Match 'passed,invalidated' (Get-Results $s.steps.'plan-validation')
-    Assert-Match 'plan.md changed' (($s.steps.'plan-validation'.history | Where-Object { $_.result -eq 'invalidated' }).reasons -join ' ')
-
-    # Editing a research artifact during an attempt makes `complete` report stale, not failed.
-    Write-ValidatorReport -RunId $id -Report plan
+    # A supported change to a passed upstream artifact (here, discarding the data research so
+    # its owner re-runs it) invalidates coverage, the plan, and the plan validation.
     Add-Content -LiteralPath (Join-Path (Get-RunDir $id) 'research/data.md') -Value 'Edited.'
-    $c = Invoke-State @('complete', '-RunId', $id, '-Step', 'plan-validation')
-    Assert-Equal 'stale' $c.Json.result
+    Assert-Ok (Invoke-State @('resolve', '-RunId', $id, '-Step', 'research-data', '-Resolution', 'discard')) | Out-Null
     $s = Read-RunState $id
-    Assert-Equal 0 $s.steps.'plan-validation'.attempts 'a stale attempt is not counted'
-    foreach ($name in 'coverage', 'plan') { Assert-Equal 'pending' $s.steps[$name].status "$name invalidated by the research edit" }
-    Assert-Equal 'passed' $s.steps.'research-data'.status 'research itself is not re-gated by an edit'
+    foreach ($name in 'coverage', 'plan', 'plan-validation') {
+        Assert-Equal 'pending' $s.steps[$name].status $name
+        Assert-Match 'passed,invalidated$' (Get-Results $s.steps[$name]) $name
+    }
+    Assert-Equal 'passed' $s.steps.'research-dotnet'.status
+
+    # The data research re-runs, then coverage is restarted; if the research is re-run again
+    # mid-attempt (coverage routed it back), `complete` reports stale and counts nothing.
+    Assert-Equal 1 (Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'research-data'))).attempt
+    Write-Research $id 'data'
+    Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'research-data')) | Out-Null
+    Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'coverage')) | Out-Null
+    Write-ValidatorReport -RunId $id -Report coverage
+    $s = Read-RunState $id
+    $s.steps.'research-data'.status = 'failed'   # as if another gate had routed a finding to it
+    $s | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path (Get-RunDir $id) 'state.json') -Encoding utf8NoBOM
+    $c = Invoke-State @('complete', '-RunId', $id, '-Step', 'coverage')
+    Assert-Equal 'stale' $c.Json.result
+    Assert-Equal 0 (Get-Step $id 'coverage').attempts 'a stale attempt is not counted'
 }
 
 Write-Section 'retry exhaustion'

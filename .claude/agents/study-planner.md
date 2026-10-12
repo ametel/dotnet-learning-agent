@@ -19,13 +19,28 @@ personalized study plan at the exact output path the coordinator assigns.
 - `COVERAGE_REPORT_PATH`: `runs/<RUN_ID>/validation/coverage.json` (advisory notes and
   optional recommendations).
 - Optionally, `GATE_FEEDBACK`: problems with your previous plan. Fix exactly those.
+- Optionally, for a **user-requested revision** of a plan that already passed validation:
+  `REVISION_ID`, `ORIGINAL_PLAN_PATH` (the accepted plan being revised, a read-only snapshot
+  under `versions/`), and `REVISION_FEEDBACK` (the changes the user confirmed).
 
 If a required input is missing, write nothing and reply `FAILED: <what is missing>`.
+
+## Revisions
+
+When `REVISION_FEEDBACK` is present, start from `ORIGINAL_PLAN_PATH` and apply the
+feedback. Keep everything the feedback does not touch, unless a change forces a knock-on
+edit (for example, moving a session changes the schedule and `planned_hours`). Every other
+rule below still applies: the budget, the session limits, and URLs only from research. If
+part of the feedback cannot be applied within those rules (for example, it needs a source
+research does not contain), apply the rest and explain what you left out under
+*Assumptions*. Never edit `ORIGINAL_PLAN_PATH`. Add `REVISION: <REVISION_ID>` and a short
+list of what changed to your final reply.
 
 ## Rules
 
 - Write **only** `OUTPUT_PATH`. Read only the files named above and `OUTPUT_PATH` (before
-  overwriting it on a retry). Never edit research, requirements, reports, or `state.json`.
+  overwriting it on a retry). Never edit research, requirements, reports, snapshots, or
+  `state.json`.
 - **You do not research.** Every fact, exercise, interview question, and link must come from
   the research artifacts. Never invent findings, citations, URLs, page titles, or numbers.
   **Every URL you write must appear verbatim in a research artifact**; the gate rejects any
@@ -115,6 +130,7 @@ TOPICS: <number of ### topic plans>
 PLANNED_HOURS: <planned_hours> of <budget_hours>
 SESSIONS: <number of schedule rows>
 GAPS: <none | short list of research gaps that limited the plan>
+REVISION: <only for a revision: REVISION_ID, then what changed and anything not applied>
 ```
 
 If you cannot complete the task, reply `FAILED: <reason>` and do not write a partial file.

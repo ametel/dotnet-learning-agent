@@ -21,10 +21,17 @@
                 step that owns them (targeted retry).
       fail      Mark the current attempt of a step as failed with a reason.
                 -NoRetry marks the failure as not worth retrying (e.g. tools unavailable).
+      revise    Reopen a passed, validated artifact (only `plan`) for a user-requested
+                revision described in -RequestFile. Records the request first; the revised
+                version gets its own attempt budget (CLAUDE.md §6.2).
+      verify    Check that every passed artifact still has its recorded hash.
+      resolve   Resolve an integrity violation of one step: -Resolution restore (copy back the
+                accepted version) or discard (re-run the owner on a fresh budget).
       show      Print state.json.
 
-    On every save, downstream steps whose input steps are no longer passed, or whose input
-    files changed, are reset to pending with a fresh attempt budget (CLAUDE.md §5.2).
+    On every save, passed artifacts are checked against their recorded hashes (a mismatch
+    blocks the run), and downstream steps whose input steps are no longer passed, or whose
+    input files changed, are reset to pending with a fresh attempt budget (CLAUDE.md §5.2).
 
 .EXAMPLE
     pwsh -NoProfile -File scripts/state.ps1 init -Label senior-backend
@@ -37,7 +44,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('init', 'select', 'start', 'complete', 'fail', 'show')]
+    [ValidateSet('init', 'select', 'start', 'complete', 'fail', 'revise', 'verify', 'resolve', 'show')]
     [string]$Action,
 
     [string]$RunId,
@@ -46,13 +53,21 @@ param(
     [string]$AgentId,
     [string]$Reason,
     [string]$SelectionFile,
+    [string]$RequestFile,
+    [ValidateSet('restore', 'discard')]
+    [string]$Resolution,
     [switch]$NoRetry,
     # Overridable for testing; defaults to <repo>/runs.
     [string]$RunsRoot = (Join-Path $PSScriptRoot '..' 'runs')
 )
 
 $ErrorActionPreference = 'Stop'
+# Gate-failure retries: attempts per artifact version (the initial attempt plus 2 retries).
 $MaxAttempts = 3
+# User-requested revisions: revisions per artifact per run. Separate from $MaxAttempts.
+$MaxRevisions = 3
+# Steps whose passed artifact may be reopened by a requested revision.
+$RevisableSteps = @('plan')
 $MinResearchSources = 3
 
 # Research agent registry: area -> owning agent. Step name is "research-<area>",
@@ -178,7 +193,9 @@ function Read-State([string]$RunDir) {
 }
 
 function Save-State([string]$RunDir, $State) {
-    Update-Invalidation $RunDir $State
+    $violations = Update-Integrity $RunDir $State
+    Update-Invalidation $RunDir $State $violations
+    Update-Revisions $State
     Update-Workflow $State
     $State.updated_at = Get-Now
     Write-JsonAtomic (Join-Path $RunDir 'state.json') $State
@@ -201,6 +218,29 @@ function Test-Exhausted($Entry) {
 }
 
 function Get-AttemptsLeft($Entry) { if ($Entry['retry_blocked']) { 0 } else { $MaxAttempts - $Entry.attempts } }
+
+# The items of a JSON array that may be absent (older runs) or null. Always wrap the call
+# in @(...) to get an array.
+function Get-List($Value) { if ($null -ne $Value) { $Value } }
+
+# Version number the step's next accepted artifact will get.
+function Get-NextVersion($Entry) { @(Get-List $Entry['accepted_versions']).Count + 1 }
+
+# Run-relative path ("plan.md") of a step's artifact.
+function Get-RelativeArtifact($Entry) { $Entry.artifact.Substring("runs/$RunId/".Length) }
+
+# Steps whose artifact the given step is built from, directly or transitively.
+function Get-UpstreamSteps($State, [string]$Name) {
+    $research = @(Get-ResearchStepNames $State)
+    switch -Wildcard ($Name) {
+        'requirements' { @() }
+        'research-*' { @('requirements') }
+        'coverage' { @('requirements') + $research }
+        'plan' { @('requirements') + $research + @('coverage') }
+        'plan-validation' { @('requirements') + $research + @('coverage', 'plan') }
+        default { @() }
+    }
+}
 
 # ---------------------------------------------------------------- Markdown parsing helpers
 
@@ -247,8 +287,10 @@ function Get-SectionLines([string[]]$Lines, [string]$Heading) {
 }
 
 function Get-Urls([string[]]$Lines) {
+    # An apostrophe is valid inside a URL (e.g. a Learn anchor "...-microservice's-autonomy"),
+    # so it is only trimmed when it ends the match, like other trailing punctuation.
     $urls = foreach ($line in $Lines) {
-        foreach ($m in [regex]::Matches($line, 'https?://[^\s<>()\[\]"''`|]+')) { $m.Value.TrimEnd('.', ',', ';', ':') }
+        foreach ($m in [regex]::Matches($line, 'https?://[^\s<>()\[\]"`|]+')) { $m.Value.TrimEnd('.', ',', ';', ':', "'") }
     }
     @($urls | Select-Object -Unique)
 }
@@ -283,8 +325,10 @@ function Get-DownstreamInputs([string]$RunDir, $State, [string]$Name) {
     return $files
 }
 
-# Reasons a downstream step's inputs are no longer valid (empty = fresh).
-function Get-StaleReasons([string]$RunDir, $State, [string]$Name) {
+# Reasons a downstream step's inputs are no longer valid (empty = fresh). Files in
+# $IgnoreFiles (passed artifacts that were modified by hand) are not legitimate input
+# changes: they are integrity violations and must be resolved first, not propagated.
+function Get-StaleReasons([string]$RunDir, $State, [string]$Name, [string[]]$IgnoreFiles = @()) {
     $entry = $State.steps[$Name]
     $reasons = @(foreach ($p in Get-Prerequisites $State $Name) {
             if ($State.steps[$p].status -ne 'passed') { "input step '$p' is $($State.steps[$p].status)" }
@@ -292,6 +336,7 @@ function Get-StaleReasons([string]$RunDir, $State, [string]$Name) {
     if ($entry.inputs_sha256) {
         $current = Get-DownstreamInputs $RunDir $State $Name
         foreach ($k in $current.Keys) {
+            if ($k -in $IgnoreFiles) { continue }
             if ($current[$k] -ne $entry.inputs_sha256[$k]) { $reasons += "$k changed" }
         }
     }
@@ -309,14 +354,157 @@ function Reset-Invalidated($Entry, [string[]]$Reasons) {
     $Entry.history += @([ordered]@{ result = 'invalidated'; reasons = $Reasons; at = (Get-Now) })
 }
 
-function Update-Invalidation([string]$RunDir, $State) {
+function Update-Invalidation([string]$RunDir, $State, $Violations = @()) {
     if (-not $State.steps.Contains('coverage')) { return }
+    $ignore = @($Violations | ForEach-Object { $_.artifact.Substring("runs/$RunId/".Length) })
     foreach ($name in $DownstreamSteps.Keys) {
         $entry = $State.steps[$name]
         if ($entry.status -notin 'passed', 'failed' -or -not $entry.inputs_sha256) { continue }
-        $reasons = Get-StaleReasons $RunDir $State $name
+        $reasons = Get-StaleReasons $RunDir $State $name $ignore
         if ($reasons.Count -gt 0) { Reset-Invalidated $entry $reasons }
     }
+}
+
+# ---------------------------------------------------------------- artifact integrity
+
+# Passed steps whose artifact no longer has the hash recorded when it passed. Only the
+# artifact's owner may change it, and only while its step is not passed, so any mismatch
+# is a manual (or otherwise unsupported) modification.
+function Get-IntegrityViolations([string]$RunDir, $State) {
+    $found = foreach ($name in @($State.steps.Keys)) {
+        $e = $State.steps[$name]
+        if ($e.status -ne 'passed' -or -not $e.artifact_sha256) { continue }
+        $actual = Get-InputHash (Get-ArtifactPath $RunDir $e)
+        if ($actual -ne $e.artifact_sha256) {
+            [ordered]@{ step = $name; artifact = $e.artifact; expected_sha256 = $e.artifact_sha256; actual_sha256 = $actual }
+        }
+    }
+    , @($found)
+}
+
+# Records the current integrity status on the state and returns the violations.
+function Update-Integrity([string]$RunDir, $State) {
+    if (-not $State['integrity']) { $State.integrity = [ordered]@{ status = 'ok'; violations = @(); detected_at = $null; events = @() } }
+    $violations = Get-IntegrityViolations $RunDir $State
+    if ($violations.Count -gt 0) {
+        if ($State.integrity.status -ne 'violated') { $State.integrity.detected_at = Get-Now }
+        $State.integrity.status = 'violated'
+        $State.integrity.violations = $violations
+    }
+    else {
+        $State.integrity.status = 'ok'
+        $State.integrity.violations = @()
+        $State.integrity.detected_at = $null
+    }
+    return , $violations
+}
+
+function Format-Violation($V) {
+    $rel = $V.artifact.Substring("runs/$RunId/".Length)
+    $found = if ($V.actual_sha256) { $V.actual_sha256.Substring(0, 12) } else { 'missing' }
+    $fix = if ($V.step -eq 'requirements') { 'restore' } else { 'restore|discard' }
+    "$rel changed after it passed (step '$($V.step)'; recorded $($V.expected_sha256.Substring(0, 12)), found $found). " +
+    "Restore the file, or run: state.ps1 resolve -RunId $RunId -Step $($V.step) -Resolution $fix"
+}
+
+# Refuses an action that would build on a manually modified artifact. With -Step, only
+# violations in that step's upstream chain block it; without, any violation blocks.
+# The violation is saved first, so `state.json` shows the blocked run.
+function Assert-Integrity([string]$RunDir, $State, [string]$ForStep) {
+    $violations = Get-IntegrityViolations $RunDir $State
+    if ($ForStep) {
+        $upstream = @(Get-UpstreamSteps $State $ForStep)
+        $relevant = @($violations | Where-Object { $_.step -in $upstream })
+    }
+    else { $relevant = $violations }
+    if ($relevant.Count -eq 0) { return }
+    Save-State $RunDir $State
+    throw "Integrity violation: $(($relevant | ForEach-Object { Format-Violation $_ }) -join ' ')"
+}
+
+# ---------------------------------------------------------------- accepted versions and revisions
+
+# Records the artifact a step just passed with as a new accepted version, and keeps a
+# snapshot of it under versions/ (used to restore it, and as a revision's base).
+function Add-AcceptedVersion([string]$RunDir, $Entry, [string]$Name) {
+    $version = Get-NextVersion $Entry
+    $src = Get-ArtifactPath $RunDir $Entry
+    $snapshot = "versions/$Name-v$version$([System.IO.Path]::GetExtension($src))"
+    New-Item -ItemType Directory -Path (Join-Path $RunDir 'versions') -Force | Out-Null
+    Copy-Item -LiteralPath $src -Destination (Join-Path $RunDir $snapshot) -Force
+    $record = [ordered]@{
+        version     = $version
+        sha256      = $Entry.artifact_sha256
+        attempt     = $Entry.attempts
+        agent_id    = $Entry.agent_id
+        revision    = $Entry['active_revision']
+        snapshot    = "runs/$RunId/$snapshot"
+        accepted_at = $Entry.completed_at
+    }
+    $Entry.accepted_versions = @(Get-List $Entry['accepted_versions']) + @($record)
+    $Entry.version = $version
+    return $record
+}
+
+# A run created before versions were recorded has a passed artifact but no version record.
+# Record it as version 1 (its hash was verified by Assert-Integrity) before revising it.
+function Initialize-LegacyVersion([string]$RunDir, $Entry, [string]$Name) {
+    if (@(Get-List $Entry['accepted_versions']).Count -gt 0) { return }
+    $record = Add-AcceptedVersion $RunDir $Entry $Name
+    $record.recorded_late = $true
+}
+
+# Open revisions complete when the revised step and every step after it have passed again,
+# and fail when any of those steps runs out of attempts.
+function Update-Revisions($State) {
+    if (-not $State['revisions']) { return }
+    $order = @($DownstreamSteps.Keys)
+    foreach ($rev in @($State.revisions)) {
+        if ($rev.status -ne 'open') { continue }
+        $chain = @($order | Select-Object -Skip ([array]::IndexOf($order, $rev.step)))
+        $entry = $State.steps[$rev.step]
+        $exhausted = @($chain + @(Get-UpstreamSteps $State $rev.step) | Where-Object { Test-Exhausted $State.steps[$_] })
+        if ($exhausted.Count -gt 0) {
+            $rev.status = 'failed'
+            $rev.failed_at = Get-Now
+            $rev.failure_reason = "Step(s) out of attempts: $($exhausted -join ', ')"
+            $entry.active_revision = $null
+            continue
+        }
+        if (@($chain | Where-Object { $State.steps[$_].status -ne 'passed' }).Count -eq 0) {
+            $rev.status = 'completed'
+            $rev.completed_at = Get-Now
+            $rev.result_version = $entry.version
+            $rev.result_sha256 = $entry.artifact_sha256
+            $entry.active_revision = $null
+        }
+    }
+}
+
+# Problems with a revision request (empty = valid). The request must come from the user,
+# quote the user's explicit confirmation, and say what to change.
+function Test-RevisionRequest([string]$RunDir, $State, $Request) {
+    $errors = [System.Collections.Generic.List[string]]::new()
+    if ($Request -isnot [System.Collections.IDictionary]) { $errors.Add('The request must be a JSON object.'); return , $errors }
+    if ("$($Request['step'])" -ne $Step) { $errors.Add("'step' must be '$Step' (got '$($Request['step'])').") }
+    if ("$($Request['requested_by'])" -ne 'user') { $errors.Add("'requested_by' must be 'user'. Only the user can request a revision; agents and advisory findings cannot.") }
+    if (-not "$($Request['user_confirmation'])".Trim()) { $errors.Add("'user_confirmation' must quote the user's explicit confirmation of this revision.") }
+    if (-not "$($Request['reason'])".Trim()) { $errors.Add("'reason' must say why the artifact is being revised.") }
+    if (-not "$($Request['feedback'])".Trim()) { $errors.Add("'feedback' must state the changes the user confirmed.") }
+    $source = "$($Request['source'])"
+    if ($source -notin 'user', 'advisory') { $errors.Add("'source' must be 'user' or 'advisory'.") }
+    if ($source -eq 'advisory') {
+        $ids = @(Get-List $Request['advisory_findings'] | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        if ($ids.Count -eq 0) { $errors.Add("An 'advisory' revision must list the confirmed finding IDs in 'advisory_findings'.") }
+        $report = Join-Path $RunDir $DownstreamSteps['plan-validation'].artifact
+        $known = @{}
+        if (Test-Path -LiteralPath $report -PathType Leaf) {
+            $json = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json -AsHashtable
+            foreach ($f in @(Get-List $json['findings'])) { if ($f -and $f['severity'] -eq 'advisory') { $known["$($f['id'])"] = $true } }
+        }
+        foreach ($id in $ids) { if (-not $known.ContainsKey($id)) { $errors.Add("Advisory finding '$id' is not an advisory finding in the current plan validation report.") } }
+    }
+    return , $errors
 }
 
 # Derive workflow_status / current_step / next_step from the steps, so they can't drift.
@@ -327,6 +515,12 @@ function Update-Workflow($State) {
     $State.failed_steps = @($steps.Keys | Where-Object { Test-Exhausted $steps[$_] })
     $State.next_step = $null
     $State.current_step = $null
+
+    if ($State['integrity'] -and $State.integrity.status -eq 'violated') {
+        $State.workflow_status = 'blocked'
+        $State.next_step = "resolve integrity violation ($(@($State.integrity.violations | ForEach-Object { $_.step }) -join ', '))"
+        return
+    }
 
     if ($req.status -ne 'passed') {
         $State.workflow_status = if (Test-Exhausted $req) { 'failed' } else { 'in_progress' }
@@ -603,8 +797,9 @@ function Set-AttemptFailed($Entry, [string[]]$Reasons, [string]$Gate) {
     $now = Get-Now
     $Entry.status = 'failed'
     $Entry.completed_at = $now
-    $h = [ordered]@{ attempt = $Entry.attempts; result = 'failed'; reasons = $Reasons; at = $now }
+    $h = [ordered]@{ attempt = $Entry.attempts; version = (Get-NextVersion $Entry); result = 'failed'; reasons = $Reasons; at = $now }
     if ($Gate) { $h.gate = $Gate }
+    if ($Entry['active_revision']) { $h.revision = $Entry.active_revision }
     $Entry.history += @($h)
 }
 
@@ -667,6 +862,7 @@ try {
             $runDir = Get-RunDir
             $lock = Enter-StateLock $runDir
             $state = Read-State $runDir
+            Assert-Integrity $runDir $state
             if ($state.steps.requirements.status -ne 'passed') { throw 'Requirements step must pass before research selection.' }
             if ($state['research']) { throw "Research agents were already selected for run '$RunId'." }
             if (-not $SelectionFile -or -not (Test-Path -LiteralPath $SelectionFile -PathType Leaf)) { throw "Selection file not found: '$SelectionFile'." }
@@ -784,11 +980,16 @@ try {
             $runDir = Get-RunDir
             $lock = Enter-StateLock $runDir
             $state = Read-State $runDir
-            # Apply pending invalidations first (an input may have been edited since the last
-            # save), so a stale passed step can be re-run instead of reporting "already passed".
-            Update-Invalidation $runDir $state
             $entry = Get-StepEntry $state
-            if ($entry.status -eq 'passed') { throw "Step '$Step' already passed." }
+            # A manually modified upstream artifact must be resolved before anything builds on it.
+            Assert-Integrity $runDir $state $Step
+            # Apply pending invalidations first (an input may have changed since the last save),
+            # so a stale passed step can be re-run instead of reporting "already passed".
+            Update-Invalidation $runDir $state (Get-IntegrityViolations $runDir $state)
+            if ($entry.status -eq 'passed') {
+                $hint = if ($Step -in $RevisableSteps) { " To change it, record a user-requested revision with 'state.ps1 revise'." } else { '' }
+                throw "Step '$Step' already passed.$hint"
+            }
             if ($entry.status -eq 'running') { throw "Step '$Step' is already running (attempt $($entry.attempts)). Complete or fail it first." }
 
             $inputPath = Join-Path $runDir 'confirmed-input.md'
@@ -846,6 +1047,8 @@ try {
             $state = Read-State $runDir
             $entry = Get-StepEntry $state
             if ($entry.status -ne 'running') { throw "Step '$Step' is not running (status: $($entry.status))." }
+            # Refused, not failed: the attempt stays running and is not counted.
+            Assert-Integrity $runDir $state $Step
             if ($AgentId) { $entry.agent_id = $AgentId }
             $isDownstream = $DownstreamSteps.Contains($Step)
 
@@ -926,7 +1129,9 @@ try {
             $entry.status = 'passed'
             $entry.artifact_sha256 = Get-FileHash256 $artifactPath
             $entry.completed_at = $now
-            $result = [ordered]@{ run_id = $RunId; step = $Step; result = 'passed'; attempt = $entry.attempts; artifact = $entry.artifact; artifact_sha256 = $entry.artifact_sha256 }
+            $accepted = Add-AcceptedVersion $runDir $entry $Step
+            $result = [ordered]@{ run_id = $RunId; step = $Step; result = 'passed'; attempt = $entry.attempts; version = $accepted.version; artifact = $entry.artifact; artifact_sha256 = $entry.artifact_sha256 }
+            if ($accepted.revision) { $result.revision = $accepted.revision }
             if ($Step -eq 'requirements') {
                 $lines = Get-Lines $artifactPath
                 $line = $lines | Where-Object { $_ -match '^blocking_open_questions:\s*\d+\s*$' } | Select-Object -First 1
@@ -947,11 +1152,20 @@ try {
             }
             else {
                 $report = Get-Content -LiteralPath $artifactPath -Raw | ConvertFrom-Json -AsHashtable
-                $entry.advisory_findings = @($report['findings'] | Where-Object { $_ -and $_['severity'] -eq 'advisory' }).Count
+                $advisory = @($report['findings'] | Where-Object { $_ -and $_['severity'] -eq 'advisory' })
+                $entry.advisory_findings = $advisory.Count
                 $result.advisory_findings = $entry.advisory_findings
+                # Advisory findings are never routed. They can be offered to the user as
+                # suggested revisions; only the user's explicit request opens one.
+                $result.suggested_revisions = @($advisory | ForEach-Object { [ordered]@{ id = $_['id']; owner = $_['owner']; category = $_['category']; message = $_['message'] } })
             }
-            $entry.history += @([ordered]@{ attempt = $entry.attempts; result = 'passed'; agent_id = $AgentId; at = $now })
+            $h = [ordered]@{ attempt = $entry.attempts; version = $accepted.version; result = 'passed'; agent_id = $AgentId; at = $now }
+            if ($accepted.revision) { $h.revision = $accepted.revision }
+            $entry.history += @($h)
+            $open = @(Get-List $state['revisions'] | Where-Object { $_.status -eq 'open' })
             Save-State $runDir $state
+            # Report the revisions that were in progress, so the coordinator sees one complete.
+            if ($open.Count -gt 0) { $result.revisions = @($open | ForEach-Object { [ordered]@{ id = $_.id; step = $_.step; status = $_.status; result_version = $_['result_version'] } }) }
             $result.workflow_status = $state.workflow_status
             $result.next_step = $state.next_step
             $result | ConvertTo-Json -Depth 5
@@ -968,6 +1182,164 @@ try {
             Set-AttemptFailed $entry @($(if ($Reason) { $Reason } else { 'unspecified' }))
             Save-State $runDir $state
             [ordered]@{ run_id = $RunId; step = $Step; result = 'failed'; attempt = $entry.attempts; attempts_left = Get-AttemptsLeft $entry; workflow_status = $state.workflow_status } | ConvertTo-Json
+        }
+
+        'revise' {
+            $runDir = Get-RunDir
+            $lock = Enter-StateLock $runDir
+            $state = Read-State $runDir
+            $entry = Get-StepEntry $state
+            if ($Step -notin $RevisableSteps) { throw "Step '$Step' cannot be revised. Revisable steps: $($RevisableSteps -join ', ')." }
+            Assert-Integrity $runDir $state
+            $open = @(Get-List $state['revisions'] | Where-Object { $_.status -eq 'open' })
+            if ($open.Count -gt 0) { throw "Revision '$($open[0].id)' is still open. Finish it before requesting another." }
+            if ($entry.status -ne 'passed') { throw "Step '$Step' is $($entry.status); only a passed artifact can be revised." }
+            $running = @($state.steps.Keys | Where-Object { $state.steps[$_].status -eq 'running' })
+            if ($running.Count -gt 0) { throw "Cannot revise while step(s) are running: $($running -join ', ')." }
+            $order = @($DownstreamSteps.Keys)
+            $after = @($order | Select-Object -Skip ([array]::IndexOf($order, $Step) + 1))
+            $unvalidated = @($after | Where-Object { $state.steps[$_].status -ne 'passed' })
+            if ($unvalidated.Count -gt 0) { throw "Step '$Step' can be revised only after it is validated; not passed yet: $($unvalidated -join ', ')." }
+            $used = @(Get-List $state['revisions'] | Where-Object { $_.step -eq $Step }).Count
+            if ($used -ge $MaxRevisions) { throw "Revision limit reached: step '$Step' has used all $MaxRevisions revisions for this run." }
+
+            if (-not $RequestFile -or -not (Test-Path -LiteralPath $RequestFile -PathType Leaf)) { throw "Revision request file not found: '$RequestFile'." }
+            try { $request = Get-Content -LiteralPath $RequestFile -Raw | ConvertFrom-Json -AsHashtable }
+            catch { $request = $null }
+            $errors = Test-RevisionRequest $runDir $state $request
+            if ($errors.Count -gt 0) { [ordered]@{ result = 'invalid'; errors = $errors } | ConvertTo-Json; exit 1 }
+
+            # Record the request (and the version it revises) before reopening anything.
+            Initialize-LegacyVersion $runDir $entry $Step
+            $base = @(Get-List $entry.accepted_versions)[-1]
+            if (-not $state['revisions']) { $state.revisions = @() }
+            $id = 'rev-{0:000}' -f (@(Get-List $state.revisions).Count + 1)
+            New-Item -ItemType Directory -Path (Join-Path $runDir 'revisions') -Force | Out-Null
+            $archived = "revisions/$id-request.json"
+            Copy-Item -LiteralPath $RequestFile -Destination (Join-Path $runDir $archived) -Force
+            $now = Get-Now
+            $record = [ordered]@{
+                id                = $id
+                step              = $Step
+                artifact          = $entry.artifact
+                owner             = $entry.agent
+                requested_by      = 'user'
+                source            = "$($request['source'])"
+                advisory_findings = @(Get-List $request['advisory_findings'])
+                reason            = "$($request['reason'])"
+                feedback          = "$($request['feedback'])"
+                user_confirmation = "$($request['user_confirmation'])"
+                request_file      = "runs/$RunId/$archived"
+                request_sha256    = Get-FileHash256 (Join-Path $runDir $archived)
+                requested_at      = $now
+                base_version      = $base.version
+                base_sha256       = $base.sha256
+                base_snapshot     = $base.snapshot
+                base_attempt      = $base.attempt
+                status            = 'open'
+                result_version    = $null
+                result_sha256     = $null
+                completed_at      = $null
+            }
+            $state.revisions = @(Get-List $state.revisions) + @($record)
+
+            # Reopen only the owner's step. Its gate history stays as it is; the new version
+            # gets its own attempt budget. Downstream steps are invalidated on save.
+            $entry.status = 'pending'
+            $entry.attempts = 0
+            $entry.retry_blocked = $false
+            $entry.artifact_sha256 = $null
+            $entry.active_revision = $id
+            $entry.revisions = @(Get-List $entry['revisions']) + @($id)
+            $before = [ordered]@{}
+            foreach ($n in $after) { $before[$n] = $state.steps[$n].status }
+            Save-State $runDir $state
+            [ordered]@{
+                run_id          = $RunId
+                result          = 'opened'
+                revision        = $id
+                step            = $Step
+                owner           = $entry.agent
+                artifact        = $entry.artifact
+                base_version    = $base.version
+                base_snapshot   = $base.snapshot
+                request_file    = $record.request_file
+                feedback        = $record.feedback
+                attempts_left   = Get-AttemptsLeft $entry
+                revisions_left  = $MaxRevisions - $used - 1
+                invalidated     = @($after | Where-Object { $before[$_] -eq 'passed' -and $state.steps[$_].status -ne 'passed' })
+                workflow_status = $state.workflow_status
+                current_step    = $state.current_step
+            } | ConvertTo-Json -Depth 5
+        }
+
+        'verify' {
+            $runDir = Get-RunDir
+            $lock = Enter-StateLock $runDir
+            $state = Read-State $runDir
+            $violations = Get-IntegrityViolations $runDir $state
+            Save-State $runDir $state
+            [ordered]@{
+                run_id          = $RunId
+                result          = $(if ($violations.Count) { 'violated' } else { 'ok' })
+                violations      = @($violations | ForEach-Object { [ordered]@{ step = $_.step; artifact = $_.artifact; message = (Format-Violation $_) } })
+                workflow_status = $state.workflow_status
+                next_step       = $state.next_step
+            } | ConvertTo-Json -Depth 5
+            if ($violations.Count) { exit 1 }
+        }
+
+        'resolve' {
+            $runDir = Get-RunDir
+            $lock = Enter-StateLock $runDir
+            $state = Read-State $runDir
+            $entry = Get-StepEntry $state
+            if (-not $Resolution) { throw 'Missing -Resolution (restore or discard).' }
+            $v = @(Update-Integrity $runDir $state | Where-Object { $_.step -eq $Step })
+            if ($v.Count -eq 0) { throw "Step '$Step' has no integrity violation to resolve." }
+            $path = Get-ArtifactPath $runDir $entry
+            $now = Get-Now
+            # Keep the modified file for audit; it is never used as an input.
+            $kept = $null
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+                New-Item -ItemType Directory -Path (Join-Path $runDir 'versions') -Force | Out-Null
+                $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfff')
+                $kept = "versions/$Step-modified-$stamp$([System.IO.Path]::GetExtension($path))"
+                Copy-Item -LiteralPath $path -Destination (Join-Path $runDir $kept) -Force
+            }
+            $integrityEvent = [ordered]@{ step = $Step; resolution = $Resolution; expected_sha256 = $v[0].expected_sha256; found_sha256 = $v[0].actual_sha256; modified_copy = $(if ($kept) { "runs/$RunId/$kept" } else { $null }); at = $now }
+            switch ($Resolution) {
+                'restore' {
+                    $accepted = @(Get-List $entry['accepted_versions'] | Where-Object { $_.sha256 -eq $entry.artifact_sha256 })
+                    $snapshot = if ($accepted.Count) { Join-Path $runDir $accepted[-1].snapshot.Substring("runs/$RunId/".Length) } else { $null }
+                    if (-not $snapshot -or -not (Test-Path -LiteralPath $snapshot -PathType Leaf) -or (Get-FileHash256 $snapshot) -ne $entry.artifact_sha256) {
+                        throw "No intact snapshot of the accepted '$Step' artifact exists (runs created before versions were recorded have none). Revert the file by hand, or use -Resolution discard."
+                    }
+                    $tmp = "$path.tmp-$([guid]::NewGuid().ToString('N'))"
+                    try { Copy-Item -LiteralPath $snapshot -Destination $tmp -Force; [System.IO.File]::Move($tmp, $path, $true) }
+                    finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } }
+                    $integrityEvent.restored_version = $accepted[-1].version
+                }
+                'discard' {
+                    if ($Step -eq 'requirements') { throw 'requirements.md can only be restored; re-running requirements is not supported.' }
+                    # The owner regenerates the artifact on a fresh budget, like an invalidation.
+                    Reset-Invalidated $entry @("integrity: manual modification discarded ($($integrityEvent.found_sha256))")
+                    $entry.history[-1].result = 'discarded'
+                }
+            }
+            $state.integrity.events = @(Get-List $state.integrity['events']) + @($integrityEvent)
+            Save-State $runDir $state
+            [ordered]@{
+                run_id          = $RunId
+                step            = $Step
+                result          = $Resolution
+                modified_copy   = $integrityEvent.modified_copy
+                step_status     = $entry.status
+                integrity       = $state.integrity.status
+                workflow_status = $state.workflow_status
+                current_step    = $state.current_step
+                next_step       = $state.next_step
+            } | ConvertTo-Json -Depth 5
         }
 
         'show' {

@@ -20,6 +20,7 @@ what is wrong, and **who owns each problem**. You never fix anything yourself.
 - `COVERAGE_MAP`: each mandatory topic → the research topic(s) and agent assigned to it.
 - `RESEARCH_ARTIFACTS`: the research files and the agent that owns each.
 - In `plan` mode: `PLAN_PATH` (`runs/<RUN_ID>/plan.md`) and `TIME_BUDGET_HOURS`.
+  For a user-requested revision, also `REVISION_FEEDBACK`: the changes the user confirmed.
 - Optionally, `GATE_FEEDBACK`: problems with your previous report. Fix exactly those.
 
 If a required input is missing, write nothing and reply `FAILED: <what is missing>`.
@@ -73,6 +74,11 @@ Check `plan.md` against `requirements.md`:
   each linked source supports what it is cited for (categories `unsupported_claim`,
   `traceability`). Owner: `study-planner`, unless the error comes from a research artifact
   the plan faithfully copied (then the research agent).
+- Revision (only when `REVISION_FEEDBACK` is given): the plan applies the confirmed
+  feedback. Feedback ignored without an explanation under *Assumptions* is `blocking`
+  (category `requirements_mismatch`, owner `study-planner`). Feedback the plan explains it
+  could not apply within the requirements or research is `advisory`. Validate the rest of
+  the plan as usual.
 
 ### Verifying claims
 

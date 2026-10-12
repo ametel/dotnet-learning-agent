@@ -3,7 +3,7 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 3A. Implemented in `/prepare-interview`:
+> **Status:** Phase 3B. Implemented in `/prepare-interview`:
 >
 > - requirements gathering,
 > - dynamic selection and parallel execution of research agents,
@@ -11,7 +11,9 @@ when implementing or running any part of the workflow.
 > - study-plan synthesis,
 > - a plan-validation gate,
 > - targeted retries routed to the owning agent,
-> - downstream invalidation of dependent steps.
+> - downstream invalidation of dependent steps,
+> - user-requested revisions of a validated plan (§6.2),
+> - integrity checks on passed artifacts (§6.4).
 >
 > The subagents are `requirements-formalizer`, `dotnet-researcher`, `data-researcher`,
 > `architecture-researcher`, `quality-validator`, and `study-planner`.
@@ -20,9 +22,10 @@ when implementing or running any part of the workflow.
 > (§9.1). On 2026-10-12, one real run exercised the whole Phase 3A path end to end, from
 > requirements through plan validation. Every step passed on attempt 1. The retry and
 > invalidation paths are covered only by fixture tests, because the real run had no gate
-> failure.
-> Not implemented yet: human approval, HTML, resume (§7), hooks, and revisions of passed
-> artifacts (§6.2). Known gaps are listed in §6.3.
+> failure. **The Phase 3B revision and integrity paths are tested only with fixture
+> artifacts. No real run has exercised them yet.**
+> Not implemented yet: human approval, HTML, resume (§7), hooks, and revisions of anything
+> other than the plan. Known gaps are listed in §6.3.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -229,6 +232,9 @@ runs/<run-id>/
   plan.md                    # owner: study-planner
   validation/plan.json       # owner: quality-validator (plan report; .md summary beside it)
   validation/history/        # owner: coordinator (state.ps1 archives every report attempt here)
+  versions/                  # owner: coordinator (state.ps1 snapshots every accepted artifact version)
+  revision-request.json      # owner: coordinator (the latest user-confirmed revision request)
+  revisions/                 # owner: coordinator (state.ps1 archives each revision request)
   approval.json              # owner: coordinator (records the human decision)
   guide.html                 # owner: HTML renderer, written only after approval
 ```
@@ -264,6 +270,10 @@ A `complete` whose inputs changed during the attempt returns `stale`, which is n
 as a failed attempt. Research steps are not invalidated automatically: `state.ps1` refuses
 to start or complete research on a changed `requirements.md` or `confirmed-input.md`, but
 re-running requirements is not supported yet.
+
+Only a supported change invalidates downstream steps: an owner re-running its step (a
+retry, a requested revision, or a `discard`). A passed artifact edited outside the workflow
+is an integrity violation (§6.4). It blocks dependent steps and is never propagated.
 
 - **Changing an upstream artifact invalidates every artifact downstream of it.** If
   `requirements.md` changes, all research, the plan, the validations, the approval, and the
@@ -339,40 +349,101 @@ that owns it.
 Downstream steps are then invalidated (§5.2). Passed research for other areas is never
 touched. Every report attempt is archived in `validation/history/`.
 
-### 6.2 Gate-failure retries vs. requested revisions
+### 6.2 Gate-failure retries vs. requested revisions (implemented, Phase 3B)
 
-These are two different mechanisms, and they must stay separate.
+These are two different mechanisms, and they stay separate.
 
-| | Gate-failure retry (implemented) | Requested revision (not implemented) |
+| | Gate-failure retry | Requested revision |
 |---|---|---|
-| Trigger | A deterministic gate fails, or a validator report has a **blocking** finding | An **advisory** finding the coordinator wants fixed, or the user choosing "request changes" at approval (§8) |
-| Step state | Step is `running` or `failed` | Step has already `passed` |
-| Who decides | `state.ps1` routes the finding to its owner automatically | The coordinator or the user, deliberately |
-| Budget | Counts against the owner's 3 attempts | Tracked separately; never uses up gate attempts |
-| Downstream | Dependent steps are invalidated (§5.2) | Same: dependent steps must be invalidated and re-validated |
+| Trigger | A deterministic gate fails, or a validator report has a **blocking** finding | The **user** explicitly asks for a change to a validated plan, possibly by picking an advisory finding |
+| Step state | Step is `running` or `failed` | Step has `passed`, and every step after it has passed (the run is paused at approval) |
+| Who decides | `state.ps1` routes the finding to its owner automatically | Only the user. The coordinator records the request; agents and advisory findings never open one |
+| Limit | **3 attempts per artifact version** (`$MaxAttempts`) | **3 revisions per artifact per run** (`$MaxRevisions`). Each revised version also gets its own 3 attempts |
+| Recorded in | `steps.<s>.history` (each entry tagged with `version`, and `revision` when it belongs to one) | `state.revisions[]`, plus `revisions/<id>-request.json` (the archived request) |
+| Downstream | Dependent steps are invalidated (§5.2) | The same: dependent steps are invalidated and validated again |
 
-Until revisions exist, a passed artifact is final for its run. Advisory findings are
-reported to the user and stay in the validator report. Nobody acts on them automatically.
-The coordinator must **not** edit an artifact itself to apply an advisory fix (§5).
+**Revisable artifacts:** only `plan` (owner `study-planner`). Research and requirements
+cannot be revised, because re-running requirements is not supported.
 
-### 6.3 Known limitations (Phase 3A)
+**Revision lifecycle** (`state.ps1 revise -RunId <id> -Step plan -RequestFile <json>`):
 
-- **Passed plans cannot be reopened.** `state.ps1 start` refuses a `passed` step, `fail`
-  only accepts a `running` step, and a step is reopened only by a changed input or a routed
-  blocking finding. A passed plan therefore cannot be sent back to `study-planner`, either
-  for advisory findings or for user-requested changes.
-- **Advisory findings are recorded but not routed.** Only blocking findings are routed to
-  an owner. Advisory findings are counted in `state.json` (`advisory_findings`) and remain
-  in `validation/*.json`.
-- **Manual edits to a passed artifact are only partly detected.** Editing `plan.md` by hand
-  invalidates `plan-validation`, because `plan.md` is one of its inputs. But the `plan` step
-  itself stays `passed` with an outdated `artifact_sha256`, because steps are not
-  re-checked against their own artifact hash. Research artifacts are protected only at
-  `start`/`complete` of downstream steps. The same gap applies to every passed artifact.
-- **`Get-Urls` truncates URLs that contain an apostrophe.** The URL regex in
-  `scripts/state.ps1` stops at `'`, so a Microsoft Learn anchor such as
-  `...#...-microservice's-autonomy` is shortened. Research and plan are parsed the same way,
-  so traceability still matches, but source counts and reported URLs can be wrong.
+1. **Request.** The coordinator writes `revision-request.json` with `step`,
+   `requested_by: user`, `source` (`user` or `advisory`, with `advisory_findings` IDs that
+   must exist as advisory findings in the current `validation/plan.json`), `reason`,
+   `feedback`, and `user_confirmation` (the user's confirming reply, verbatim). A request
+   missing any of these, or naming another actor, is rejected and nothing is recorded.
+2. **Open.** `revise` checks integrity (§6.4), that the plan and plan validation have
+   passed, that no revision is open, and the revision limit. It then archives the request,
+   records `rev-NNN` in `state.revisions` (`status: open`, base version, base hash, base
+   snapshot, base attempt), and only then reopens the plan: `status: pending`,
+   `attempts: 0`, `active_revision: rev-NNN`. The plan's `history` is not touched.
+   `plan-validation` is invalidated. Research and coverage are not touched.
+3. **Regenerate.** The planner gets the original plan (its snapshot), the confirmed
+   feedback, and the validated research. The plan gate and its retries work as usual, on
+   the new version's own 3 attempts.
+4. **Validate.** Plan validation runs again, with the feedback. A blocking finding is
+   routed as usual. If it reopens research, the revision stays open until the whole chain
+   has passed again.
+5. **Close.** When the plan and everything after it have passed, the revision becomes
+   `completed`, with `result_version` and `result_sha256`. If a step in its chain runs out
+   of attempts, the revision becomes `failed` and the run fails. There is no automatic
+   rollback; the last accepted version stays in `versions/`.
+
+**Accepted versions:** each time a step passes, `state.ps1` records `version`, `sha256`,
+`attempt`, `agent_id`, and `revision` in `steps.<s>.accepted_versions`, and copies the
+artifact to `versions/<step>-v<N>.<ext>`. A plan that passes its gate but is then rejected
+by plan validation still counts as an accepted version of the plan step.
+
+Advisory findings are never routed. The passing `complete` of a report step prints them as
+`suggested_revisions`, which the coordinator may offer to the user. The coordinator must
+**not** edit an artifact itself to apply any fix (§5).
+
+### 6.3 Known limitations (Phase 3B)
+
+- **Not exercised in a real run.** Revisions and integrity checks are tested with fixtures
+  only.
+- **Authorization is recorded, not proven.** `state.ps1` can require an explicit,
+  well-formed request that quotes the user's confirmation, but it cannot verify that the
+  user actually typed it. The coordinator prompt is the only enforcement.
+- **Only the plan can be revised**, one revision at a time, and only after plan
+  validation passed. Feedback that changes confirmed requirements or needs new research is
+  out of scope for a revision.
+- **No rollback.** A revision that exhausts its attempts fails the run. The previous
+  accepted plan is kept in `versions/`, but no action restores it as the current plan.
+- **Integrity covers step artifacts only.** It checks each passed step's main artifact
+  (`requirements.md`, `research/*.md`, `validation/*.json`, `plan.md`). The validator's
+  Markdown summaries, `confirmed-input.md`, and `research-selection.json` are not covered.
+  `confirmed-input.md` changes are still caught as stale inputs.
+- **Runs created before Phase 3B** have no version snapshots for steps that passed then.
+  `restore` is unavailable for them (revert by hand or `discard`). A revision of such a plan
+  records the current, hash-verified plan as version 1 first.
+
+### 6.4 Passed-artifact integrity (implemented, Phase 3B)
+
+Only an artifact's owner may change it, and only while its step is not `passed`. On every
+save, `state.ps1` compares each passed step's artifact with its recorded `artifact_sha256`.
+
+- A mismatch is an **integrity violation**. `state.json` records it under `integrity`, and
+  the run's `workflow_status` becomes `blocked`.
+- The modified content is **never** accepted, and never treated as a legitimate input
+  change: nothing downstream is invalidated by it.
+- `start` and `complete` are refused for every step that depends on the modified artifact.
+  A refused `complete` is not a failed attempt; the step stays `running`. `select` and
+  `revise` are refused while any violation exists.
+- `state.ps1 verify` reports violations. They are resolved only by an explicit action:
+  - reverting the file to its accepted content, by hand or with
+    `state.ps1 resolve -Step <s> -Resolution restore` (copies back the snapshot of the
+    accepted version), or
+  - `state.ps1 resolve -Step <s> -Resolution discard`: the step returns to `pending` with
+    a fresh budget (like an invalidation), its owner regenerates it, and dependent steps
+    are invalidated. Not available for `requirements`.
+
+  Both resolutions first copy the modified file to `versions/<step>-modified-<time>` for
+  audit, and record an event in `integrity.events`.
+
+URLs are extracted with apostrophes kept inside them (a Learn anchor such as
+`...-microservice's-autonomy` stays whole). A trailing apostrophe, like other trailing
+punctuation, is trimmed.
 
 ---
 
@@ -399,7 +470,8 @@ The coordinator must **not** edit an artifact itself to apply an advisory fix (�
 - The decision and any feedback go to `approval.json`.
 - "Request changes" sends a targeted revision to the plan owner. This counts toward that
   artifact's retry budget only if it is a gate failure; user-requested revisions are
-  tracked separately (§6.2). Revisions are not implemented yet.
+  tracked separately (§6.2). The revision mechanism exists (Phase 3B); the approval prompt
+  that would trigger it does not yet.
 - **Approval is tied to the exact plan content.** `approval.json` records the SHA-256 hash
   of the `plan.md` the user approved (plus a plan version number for readability).
 - Before rendering, the coordinator recomputes the hash of the current `plan.md`. If it
@@ -494,7 +566,7 @@ Inside a session, `/mcp` shows the server and its tools.
 
 ```
 .claude/agents/     subagent definitions              (requirements, 3 research, validator, planner)
-.claude/commands/   /prepare-interview command        (Phase 3A scope)
+.claude/commands/   /prepare-interview command        (Phase 3B scope)
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
 scripts/            deterministic helpers             (state.ps1)

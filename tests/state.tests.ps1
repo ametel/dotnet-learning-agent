@@ -265,12 +265,20 @@ Test-Case 'research start records input hashes for confirmed input, requirements
     Assert-Match '^[0-9a-f]{64}$' $h.assignment
 }
 
-Test-Case 'research complete fails as stale when requirements.md or confirmed-input.md changes mid-attempt' {
+Test-Case 'research complete is refused after a passed requirements.md is edited, and fails as stale after confirmed-input.md changes' {
+    # requirements.md already passed, so editing it is an integrity violation: complete is
+    # refused (not failed), the attempt is not counted, and restoring it unblocks the step.
     $id = New-SelectedRun @('data', 'architecture')
     Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'research-data')) | Out-Null
     Write-Research $id 'data'
     Add-Content -LiteralPath (Join-Path (Get-RunDir $id) 'requirements.md') -Value 'edited'
-    Assert-Fails (Invoke-State @('complete', '-RunId', $id, '-Step', 'research-data')) 'Stale: requirements.md changed'
+    Assert-Fails (Invoke-State @('complete', '-RunId', $id, '-Step', 'research-data')) 'Integrity violation: requirements.md changed after it passed'
+    $s = Read-RunState $id
+    Assert-Equal 'running' $s.steps.'research-data'.status
+    Assert-Equal 0 @($s.steps.'research-data'.history).Count 'a refused complete records no attempt'
+    Assert-Equal 'blocked' $s.workflow_status
+    Assert-Ok (Invoke-State @('resolve', '-RunId', $id, '-Step', 'requirements', '-Resolution', 'restore')) | Out-Null
+    Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'research-data')) | Out-Null
 
     $id = New-SelectedRun @('architecture')
     Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'research-architecture')) | Out-Null

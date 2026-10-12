@@ -10,7 +10,7 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress (Phase 3A).** `/prepare-interview` runs these steps, then
+🚧 **Implementation in progress (Phase 3B).** `/prepare-interview` runs these steps, then
 stops:
 
 1. It gathers and confirms your requirements. The `requirements-formalizer` writes
@@ -29,13 +29,25 @@ A failed gate re-runs only the agent that owns the problem (at most 3 attempts p
 artifact), and dependent steps are invalidated and regenerated. Human approval and HTML
 generation are not implemented yet.
 
-**Gate-failure retries vs. requested revisions.**
+After the plan passes validation, you can ask for changes to it, in the same session or
+later with `/prepare-interview revise <run-id>`. The coordinator confirms the change with
+you, records the request, and then reopens only the plan. The `study-planner` revises it
+from the validated research, and the plan is validated again. Research is not re-run.
+
+**Gate-failure retries vs. requested revisions** (CLAUDE.md §6.2):
 - **A retry** is automatic. It happens when a gate fails or a validator finds a
-  **blocking** problem, and it counts against the owner's 3 attempts.
-- **A revision** is a deliberate change to an artifact that already **passed**. It covers
-  acting on an advisory finding, or the user's "request changes" at approval. Revisions
-  will be tracked separately from the retry budget. They are **not implemented yet**, so a
-  passed artifact is final for its run (CLAUDE.md §6.2).
+  **blocking** problem, and it counts against the owner's **3 attempts per version**.
+- **A revision** is a change **you** ask for to a plan that already passed validation. It
+  can start from an advisory finding you pick, but advisory findings never start one by
+  themselves. Revisions are recorded separately (`state.json` → `revisions`) and limited to
+  **3 per plan per run**. Each revised version gets its own 3 attempts, and the earlier
+  retry history is kept as it was.
+
+**Accepted versions and integrity** (CLAUDE.md §6.4): every artifact that passes is
+recorded with a version number and hash, and copied to `versions/`. If a passed artifact
+is edited outside the workflow, the run is **blocked**. The edit is never accepted or
+passed on to later steps. To continue, restore the accepted version, or discard the
+artifact so its owner regenerates it (`state.ps1 resolve`).
 
 ### Verified end-to-end run of Phase 3A (2026-10-12)
 
@@ -62,8 +74,9 @@ A review of the advisory findings confirmed one real traceability error. The pla
 two queue pages for "avoid synchronous HTTP chains between services". Neither page
 supports that claim, but research cites a page that does. The plan also gave two
 ~60-minute exercises 50-minute slots. Neither problem was blocking under the severity
-policy. Both could not be fixed in this run, because a passed plan cannot be reopened
-(see below).
+policy. Neither could be fixed in that run, because a passed plan could not be reopened in
+Phase 3A. Phase 3B adds requested revisions for exactly this case; the run itself was not
+modified.
 
 ### Verified end-to-end run of the research phase (2026-10-12, Phase 2B)
 
@@ -91,16 +104,21 @@ local (`runs/` is git-ignored), so it is not committed.
 
 - **Only one real Phase 3A run, with no gate failures.** Retries, routing, and
   invalidation have been tested with fixtures only.
-- **Passed plans cannot be reopened.** A plan that passed its gates cannot be sent back to
-  `study-planner`, either to fix advisory findings or because the user asked for changes.
-- **Advisory findings are recorded but not routed.** Only blocking findings trigger a
-  retry. Advisory findings stay in `validation/*.json` and are reported to the user.
-- **Manual edits to a passed artifact are only partly detected.** Editing `plan.md` by hand
-  invalidates plan validation, but the `plan` step itself stays `passed` with an outdated
-  hash. The same gap applies to every passed artifact (CLAUDE.md §6.3).
-- **URLs containing an apostrophe are truncated.** `Get-Urls` in `state.ps1` stops at `'`.
-  Traceability still matches, because research and plan are parsed the same way, but source
-  counts and reported URLs can be wrong.
+- **Revisions and integrity checks (Phase 3B) have not run with live agents.** They are
+  tested with fixtures only. The prompts for revising and re-validating a plan are
+  untested against a real planner and validator.
+- **Revision authorization is recorded, not proven.** `state.ps1` requires an explicit
+  request from the user that quotes their confirmation, but it cannot verify that the user
+  typed it. The coordinator prompt is the enforcement.
+- **Only the plan can be revised**, one revision at a time, and only after it passed
+  validation. Changes to confirmed requirements, or anything needing new research, are not
+  possible as a revision. A revision that runs out of attempts fails the run; the previous
+  version is kept in `versions/`, but there is no rollback action.
+- **Advisory findings are never acted on automatically.** They are offered as suggested
+  revisions; only your request opens one.
+- **Integrity covers each step's main artifact only.** Validator summaries,
+  `confirmed-input.md`, and `research-selection.json` are not hash-checked. Runs created
+  before Phase 3B have no version snapshots, so `restore` is unavailable for them.
 - **Semantic checks depend on the validator.** Depth of coverage, conflicts, unsupported
   claims, personalization, and session lengths come from `quality-validator`, a model. The
   script checks only that its report is well-formed and self-consistent. A validator that
@@ -135,7 +153,7 @@ not used.
 
 ```
 pwsh -NoProfile -File tests/run-tests.ps1                    # all tests (5 iterations per concurrency scenario)
-pwsh -NoProfile -File tests/run-tests.ps1 -SkipConcurrency   # sequential and Phase 3A tests only (~5 min)
+pwsh -NoProfile -File tests/run-tests.ps1 -SkipConcurrency   # sequential, Phase 3A and 3B tests only
 pwsh -NoProfile -File tests/run-tests.ps1 -Iterations 25     # heavier concurrency stress
 pwsh -NoProfile -File tests/run-tests.ps1 -SensitivityCheck  # also prove the tests catch lost updates
 pwsh -NoProfile -File tests/run-tests.ps1 -KeepTestRoot      # keep the temp directory for inspection
@@ -145,6 +163,23 @@ The exit code is 0 when every test passes. Every run works in a fresh directory 
 system temp folder, passed to `state.ps1` with `-RunsRoot`, and deletes it at the end.
 Nothing is written to `runs/`.
 
+- **Phase 3B tests (10, `tests/state.revision.tests.ps1`):** agent outputs are fixtures.
+  These cover:
+  - revising a passed plan: only the planner reopens, plan validation is invalidated and
+    re-run, research and coverage are unchanged (state entries and file hashes), and the
+    new version is recorded with its hash and snapshot,
+  - rejected revisions: requested by an agent or the coordinator, no confirmation, no
+    feedback or reason, unknown or missing advisory IDs, wrong step, not-yet-validated plan,
+    non-revisable step. All of these change nothing,
+  - multiple sequential revisions (unique IDs, one open at a time, an advisory finding
+    picked by the user),
+  - a revised plan failing its gate and its validation, retried on its own budget,
+  - gate-failure history kept separate from revision history,
+  - a research finding during a revision (whole-chain invalidation and revalidation),
+  - the revision limit, and a revision that runs out of attempts,
+  - manual edits to a passed plan or research artifact (blocked, then restored or
+    discarded),
+  - URLs containing apostrophes.
 - **Phase 3A tests (17, `tests/state.synthesis.tests.ps1`):** agent outputs are fixtures.
   These cover:
   - the mandatory-topic and time-budget front matter,
@@ -159,7 +194,7 @@ Nothing is written to `runs/`.
     planned-hours mismatch, wrong `research_inputs`, missing interview session,
   - an unspecified budget,
   - plan validation blaming the planner, and blaming research (whole-chain invalidation),
-  - downstream invalidation after edits, and stale attempts,
+  - downstream invalidation after a re-run upstream step, and stale attempts,
   - retry exhaustion for research, the plan, and the validator.
 - **Sequential state tests (27):** these cover:
   - state transitions and the 3-attempt retry limit,
@@ -186,15 +221,15 @@ Nothing is written to `runs/`.
   After every operation the tests check that `state.json` parses. After every batch they
   check that no `state.lock` or temp file is left behind.
 
-Last full run (2026-10-12, Phase 3A, Windows 11, PowerShell 7.6, `-Iterations 5`):
+Last full run (2026-10-12, Phase 3B, Windows 11, PowerShell 7.6, `-Iterations 5`):
 
-- **52 of 52 tests passed** in about 7.6 minutes.
+- **62 of 62 tests passed** in about 11.4 minutes.
 - **Overlap:** there were 60 concurrent batches. In all 60, every operation overlapped
-  every other one, and start times were spread by 1 ms on average (13 ms at most).
-- **Readers:** unlocked readers parsed `state.json` 7,262 times and saw 0 invalid reads.
+  every other one, and start times were spread by 2 ms on average (15 ms at most).
+- **Readers:** unlocked readers parsed `state.json` 7,795 times and saw 0 invalid reads.
 
-The concurrency tests exercise the research steps. The Phase 3A steps run one at a time by
-design, so they are tested sequentially.
+The concurrency tests exercise the research steps. The Phase 3A and 3B steps run one at a
+time by design, so they are tested sequentially.
 
 Phase 2C stress run (`-Iterations 10 -SensitivityCheck`), before Phase 3A:
 
@@ -241,7 +276,7 @@ See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 | Path               | Purpose                                     |
 |--------------------|---------------------------------------------|
 | `.claude/agents/`  | Subagent definitions (requirements, 3 research, validator, planner) |
-| `.claude/commands/`| `/prepare-interview` command (Phase 3A scope) |
+| `.claude/commands/`| `/prepare-interview` command (Phase 3B scope) |
 | `.claude/skills/`  | Reusable skills (planned)                   |
 | `.claude/hooks/`   | Guardrail hooks (planned)                   |
 | `scripts/`         | Deterministic helpers (`state.ps1`)          |
