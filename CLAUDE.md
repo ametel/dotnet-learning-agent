@@ -3,10 +3,11 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 2B. Implemented: `/prepare-interview` (requirements, then dynamic
+> **Status:** Phase 2C (stabilization). Implemented: `/prepare-interview` (requirements, then dynamic
 > selection and parallel execution of research agents), the `requirements-formalizer`,
 > `dotnet-researcher`, `data-researcher`, and `architecture-researcher` subagents, and
-> `scripts/state.ps1` (state init/select/update with locking, which requires PowerShell 7+).
+> `scripts/state.ps1` (state init/select/update with locking, which requires PowerShell 7+),
+> covered by `tests/run-tests.ps1` (sequential and real multi-process concurrency tests).
 > The Microsoft Learn MCP server is configured in `.mcp.json` (§9.1). Plan synthesis, plan
 > validation, approval, HTML, skills, and hooks are **not implemented yet**. Parallel
 > research with real Microsoft Learn MCP calls was exercised end to end on 2026-10-12
@@ -113,7 +114,7 @@ Subagents are chosen **from the gathered requirements**, not from a fixed list. 
 - Topics the user says they have already mastered are skipped or reduced.
 
 The coordinator writes the selection and a one-line reason for each agent into
-`state.json` (`selected_agents`). That way the choice is auditable and survives a resume.
+`state.json` (`research.selected_agents`, with skipped agents in `research.not_selected`). That way the choice is auditable and survives a resume.
 
 ### 3.1 Research agents (implemented)
 
@@ -379,6 +380,7 @@ Inside a session, `/mcp` shows the server and its tools.
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
 scripts/            deterministic helpers             (state.ps1)
+tests/              state.ps1 test suite              (run-tests.ps1)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
 templates/          final HTML templates              (planned)

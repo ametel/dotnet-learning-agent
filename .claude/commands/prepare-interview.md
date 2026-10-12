@@ -74,10 +74,20 @@ Show the user a concise summary of every field: the values they gave, `Unspecifi
 2. With `Write`, save the confirmed summary from Step 3 verbatim to the `confirmed_input`
    path. Format it as Markdown with a `# Confirmed Requirements` heading, one `## <Field>`
    section per field, and a final line `Confirmed by user: yes`.
+3. **Wait for the `Write` result**, then `Read` the file back. Check that it exists, has
+   every field from Step 3 and ends with `Confirmed by user: yes`. If anything is missing,
+   write it again and re-check. Do not continue until the check passes.
+
+**Ordering rule:** never start a step before its required input is fully written and
+verified. Never put the `Write` of an input and the `state.ps1 start` that hashes it in the
+same message: tool calls in one message may run in any order, and `start` would then
+record the hash of a missing or partial file. The same applies to
+`research-selection.json` and `state.ps1 select` (Step 8).
 
 ## Step 5: Delegate to the requirements-formalizer subagent
 
-1. Mark the step started (this also enforces the 3-attempt limit):
+1. Only after Step 4.3 passed, mark the step started (this also records the input hash
+   and enforces the 3-attempt limit):
    ```
    pwsh -NoProfile -File scripts/state.ps1 start -RunId <run_id> -Step requirements
    ```
@@ -168,8 +178,8 @@ Write the selection with `Write` to `runs/<run_id>/research-selection.json` (coo
 }
 ```
 
-Then record it (it validates the selection and creates one `research-<area>` step per
-selected agent):
+After the `Write` result has come back (never in the same message), record it. This
+validates the selection and creates one `research-<area>` step per selected agent:
 
 ```
 pwsh -NoProfile -File scripts/state.ps1 select -RunId <run_id> -SelectionFile runs/<run_id>/research-selection.json
