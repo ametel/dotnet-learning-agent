@@ -1,0 +1,48 @@
+# --- Credentials and local secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+credentials*.json
+*.secret
+*.secrets.json
+
+# Claude Code local (per-user) settings and MCP overrides
+.claude/settings.local.json
+.mcp.local.json
+CLAUDE.local.md
+
+# --- Runtime logs ---
+logs/
+*.log
+
+# --- Temporary files ---
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Editors / tooling ---
+.vs/
+.vscode/
+.idea/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# --- Runs ---
+# Ad-hoc local runs are ignored; committed demonstration runs live in runs/demo-*/
+# and are always tracked (including their logs).
+runs/*
+!runs/.gitkeep
+!runs/demo-*/
+!runs/demo-*/**
