@@ -51,6 +51,9 @@ run_id: <RUN_ID>
 generated_by: requirements-formalizer
 source: runs/<RUN_ID>/confirmed-input.md
 blocking_open_questions: <count of questions tagged [blocking]>
+mandatory_topics:
+  - <each stated knowledge gap or explicitly requested topic, in the user's words>
+time_budget_hours: <total hours as a number, or unspecified>
 ---
 
 # Interview Preparation Requirements
@@ -98,6 +101,16 @@ and one tag:
   default assumption later phases should use, e.g. "Assume: latest LTS .NET".
 Write "None" only if there are truly none.>
 ```
+
+Front-matter fields that later gates check by script:
+- `mandatory_topics`: every knowledge gap the user stated and every topic they explicitly
+  asked to cover, one per line, in the user's own words (e.g. `async/await internals`).
+  Each must also appear verbatim under *Knowledge Gaps* or *Topics*. Never add derived
+  topics, strengths, or your own suggestions here; those are optional and stay in the body.
+- `time_budget_hours`: the total preparation hours, only if the user's own numbers
+  determine it (stated, or simple arithmetic such as 1 h/day × 5 days × 3 weeks = 15, with
+  the arithmetic explained as a derived item). Otherwise write `unspecified`. Never turn
+  vague input into a number.
 
 Tag conservatively: a vague but present essential (e.g. "in 3 weeks" with no exact date)
 is [non-blocking], with its interpretation stated as the assumption.

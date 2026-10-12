@@ -1,5 +1,5 @@
 ---
-description: Start a personalized .NET interview-preparation run (currently covers requirements formalization and parallel research only)
+description: Start a personalized .NET interview-preparation run (requirements, parallel research, coverage validation, study-plan synthesis and validation; no approval or HTML yet)
 argument-hint: <describe your target role, seniority, timeline, and weak areas>
 allowed-tools: Agent, AskUserQuestion, Read, Write, WebFetch(domain:learn.microsoft.com), mcp__microsoft-learn__microsoft_docs_fetch, Bash(pwsh -NoProfile -File scripts/state.ps1:*)
 ---
@@ -8,10 +8,11 @@ You are the **coordinator** (hub) of the dotnet-learning-agent workflow. Follow 
 You talk to the user, own `state.json` and `confirmed-input.md`, and delegate specialist
 work to subagents. You never write a subagent's artifact yourself.
 
-**Current scope (Phase 2B):** gather and formalize requirements (Steps 1–6), select
-research agents dynamically and run them in parallel (Steps 7–10), then stop (Step 11).
-Study-plan synthesis, plan validation, approval, and HTML are not implemented yet. Do not
-attempt them, and do not suggest they ran.
+**Current scope (Phase 3A):** gather and formalize requirements (Steps 1–6), select
+research agents dynamically and run them in parallel (Steps 7–10), validate global research
+coverage (Step 11), synthesize the study plan (Step 12), validate it (Step 13), handle
+targeted retries (Step 14), then stop (Step 15). Human approval and HTML are not
+implemented yet. Do not attempt them, and do not suggest they ran.
 
 Files you write by hand: only `confirmed-input.md` and `research-selection.json`. State
 changes go through `scripts/state.ps1`. Every other artifact belongs to a subagent.
@@ -120,7 +121,10 @@ stop. **Never** write `requirements.md` yourself as a fallback.
    pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step requirements -AgentId <agent-id>
    ```
 2. `Read` `runs/<run_id>/requirements.md` yourself. Check that it does not contradict
-   `confirmed-input.md` or add facts the user never gave. If it does, record a failure:
+   `confirmed-input.md` or add facts the user never gave. Check that `mandatory_topics`
+   lists exactly the knowledge gaps and requested topics the user confirmed (no derived
+   topics, no strengths). Also check that `time_budget_hours` is a number only if the
+   user's own numbers determine it. If anything is wrong, record a failure:
    ```
    pwsh -NoProfile -File scripts/state.ps1 fail -RunId <run_id> -Step requirements -Reason "<specific problems>"
    ```
@@ -163,6 +167,11 @@ Selection rules:
   (reason). Reasons are one sentence that cites the requirements.
 - If no topic maps to any agent, stop and tell the user. Do not select an agent "just in
   case".
+- **Coverage map:** every entry of `mandatory_topics` (from `state.json`,
+  `steps.requirements.mandatory_topics`, verbatim) must map to at least one assigned
+  research topic. If a mandatory topic cannot be covered by any research agent (for
+  example, behavioral interviews), **stop and tell the user**. Never plan a mandatory
+  topic without research.
 
 Write the selection with `Write` to `runs/<run_id>/research-selection.json` (coordinator-owned):
 
@@ -174,6 +183,9 @@ Write the selection with `Write` to `runs/<run_id>/research-selection.json` (coo
   "not_selected": [
     { "agent": "dotnet-researcher", "reason": "No C#/runtime/ASP.NET Core gap or topic requested." },
     { "agent": "architecture-researcher", "reason": "No system design or architecture topic requested." }
+  ],
+  "coverage": [
+    { "mandatory_topic": "EF Core performance", "research_topics": ["EF Core performance"] }
   ]
 }
 ```
@@ -245,22 +257,130 @@ another agent's step, and a passed artifact is never re-run or overwritten.
    same time, launch their retries together in one message. Steps that passed are left
    untouched.
 5. The research phase is finished only when **every** selected step is either `passed` or
-   out of attempts. Wait for all outstanding agents first. `state.json` then shows
-   `workflow_status` as `paused` (all passed) or `failed` (with `failed_steps`). Successful
+   out of attempts. Wait for all outstanding agents first. If all passed, `state.json`
+   shows `current_step: coverage`; go to Step 11. If any is out of attempts,
+   `workflow_status` is `failed` (with `failed_steps`); go to Step 15. Successful
    artifacts are kept in both cases.
 
-## Step 11: Report and stop
+## Step 11: Global research coverage gate
+
+Run this only when every research step is `passed`. If the run is `failed` (a research step
+is out of attempts), skip to Step 15.
+
+1. Start the gate (it refuses unless all research passed, and records the input hashes):
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 start -RunId <run_id> -Step coverage
+   ```
+2. Invoke the **quality-validator** (`subagent_type: "quality-validator"`) with:
+   ```
+   RUN_ID: <run_id>
+   MODE: coverage
+   REPORT_PATH: runs/<run_id>/validation/coverage.json
+   SUMMARY_PATH: runs/<run_id>/validation/coverage.md
+   REQUIREMENTS_PATH: runs/<run_id>/requirements.md
+   MANDATORY_TOPICS:
+   - <each entry of steps.requirements.mandatory_topics in state.json, verbatim>
+   COVERAGE_MAP:
+   - <mandatory topic> -> <research topic(s)> (<agent>, research/<area>.md)
+   RESEARCH_ARTIFACTS:
+   - runs/<run_id>/research/<area>.md (owner: <agent>)
+   ```
+   On a validator retry, add `GATE_FEEDBACK:` with the report problems.
+3. When it finishes, run the gate. It checks the report's structure, that every mandatory
+   topic is assessed and has its `### <research topic>` section, and that blocking findings
+   match the verdict:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step coverage -AgentId <agent-id>
+   ```
+4. If it failed, follow Step 14 using the printed `retry` and `blocked` lists. Never
+   continue to synthesis while coverage is not `passed`.
+
+## Step 12: Synthesize the study plan
+
+1. Only after coverage passed:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 start -RunId <run_id> -Step plan
+   ```
+2. Invoke the **study-planner** (`subagent_type: "study-planner"`) with:
+   ```
+   RUN_ID: <run_id>
+   OUTPUT_PATH: runs/<run_id>/plan.md
+   REQUIREMENTS_PATH: runs/<run_id>/requirements.md
+   MANDATORY_TOPICS:
+   - <verbatim, from state.json>
+   TIME_BUDGET_HOURS: <steps.requirements.time_budget_hours, or unspecified if null>
+   RESEARCH_ARTIFACTS:
+   - runs/<run_id>/research/<area>.md
+   COVERAGE_REPORT_PATH: runs/<run_id>/validation/coverage.json
+   ```
+   On a retry, add `GATE_FEEDBACK:` with the plan's problems only.
+3. Run the deterministic plan gate. It checks the sections, a `### <topic>` with a source
+   per mandatory topic, schedule minutes within the budget, theory, practice and interview
+   sessions per mandatory topic plus a revision session, the `research_inputs`, and that
+   **every URL appears in a research artifact**:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step plan -AgentId <agent-id>
+   ```
+4. If it failed, follow Step 14.
+
+## Step 13: Validate the study plan
+
+1. Only after the plan passed:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 start -RunId <run_id> -Step plan-validation
+   ```
+2. Invoke the **quality-validator** with `MODE: plan`,
+   `REPORT_PATH: runs/<run_id>/validation/plan.json`,
+   `SUMMARY_PATH: runs/<run_id>/validation/plan.md`, `PLAN_PATH: runs/<run_id>/plan.md`,
+   `TIME_BUDGET_HOURS`, and the same requirements, mandatory topics, and research
+   artifacts as in Step 11.
+3. Run the gate:
+   ```
+   pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step plan-validation -AgentId <agent-id>
+   ```
+4. If it failed, follow Step 14. If it passed, `state.json` shows `workflow_status: paused`
+   and `next_step: approval (not implemented yet)`. Go to Step 15.
+
+## Step 14: Targeted retries after a failed gate
+
+A failed `complete` prints `retry` (each with `step`, `owner`, `attempts_left`, and
+`feedback`) and `blocked`. `state.ps1` has already recorded the failure against the owning
+step and has reset every downstream step that depended on it to `pending`.
+
+- **`blocked` is not empty:** the problem is in your selection or in the requirements
+  (owner `coordinator` or `requirements-formalizer`). Nothing is re-run. Report it to the
+  user and stop (Step 15). Never edit an artifact to make a gate pass.
+- **For each `retry` entry with `attempts_left > 0`:** `start` that step and re-invoke
+  **only** its owner, with exactly that entry's `feedback` as `GATE_FEEDBACK`. Research
+  retries use the Step 9 prompt, and several research retries go in one message. Retries
+  of the `coverage` or `plan-validation` step re-invoke the validator.
+- **After a research retry passes its own gate (Step 10),** run coverage again (Step 11),
+  then the plan (Step 12) and plan validation (Step 13). The downstream steps start fresh
+  at attempt 1, because their inputs changed. After a plan retry passes, run Step 13 again.
+- **`attempts_left` is 0, or `workflow_status` is `failed`:** stop and report (Step 15).
+  Never continue with an artifact that has an unresolved blocking finding.
+- If a `complete` prints `"result": "stale"`, an input changed during the attempt. `start`
+  the step again; it is not counted as a failed attempt.
+
+## Step 15: Report and stop
 
 Tell the user:
-- the run ID, and the path to `requirements.md`,
+- the run ID, and the path to `requirements.md`, with its mandatory topics and time budget,
 - **blocking** open questions, if any (as in Step 7), and the count of non-blocking ones,
   with a few of the most useful,
 - which research agents were selected and why, which were not selected and why,
-- for each selected agent: passed or failed, on which attempt, its artifact path, and its
+- for each research agent: passed or failed, on which attempt, its artifact path, and its
   source count. For failures, give the reasons,
+- the coverage gate: verdict, mandatory-topic status, blocking findings that triggered
+  retries, and advisory findings and optional recommendations (from
+  `validation/coverage.md`),
+- the plan: `plan.md` path, planned hours against the budget, and the plan-validation
+  verdict with its advisory findings (from `validation/plan.md`),
+- for a failed run: which step failed, its owner, and the unresolved findings,
 - any issues from your own checks and URL spot-checks,
 - that proof of each real delegation is in `state.json` (`steps.<step>.agent_id` and
-  `history`). Do not print agent IDs,
-- that later phases (study plan, validation, approval, HTML) are not implemented yet.
+  `history`), and that every validator report is archived in `validation/history/`. Do not
+  print agent IDs,
+- that human approval and HTML generation are not implemented yet.
 
-Then **stop**. Do not write a study plan or any other artifact.
+Then **stop**. Do not ask for approval or render HTML.

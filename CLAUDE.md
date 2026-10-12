@@ -3,17 +3,26 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 2C (stabilization). Implemented: `/prepare-interview` (requirements, then dynamic
-> selection and parallel execution of research agents), the `requirements-formalizer`,
-> `dotnet-researcher`, `data-researcher`, and `architecture-researcher` subagents, and
-> `scripts/state.ps1` (state init/select/update with locking, which requires PowerShell 7+),
-> covered by `tests/run-tests.ps1` (sequential and real multi-process concurrency tests).
-> The Microsoft Learn MCP server is configured in `.mcp.json` (§9.1). Plan synthesis, plan
-> validation, approval, HTML, skills, and hooks are **not implemented yet**. Parallel
-> research with real Microsoft Learn MCP calls was exercised end to end on 2026-10-12
-> (see README). Not implemented yet: a global cross-agent coverage gate, downstream
-> invalidation and resume (§5.2, §7 describe the target design), and hooks that enforce
-> artifact ownership and approval.
+> **Status:** Phase 3A. Implemented in `/prepare-interview`:
+>
+> - requirements gathering,
+> - dynamic selection and parallel execution of research agents,
+> - a global research coverage gate,
+> - study-plan synthesis,
+> - a plan-validation gate,
+> - targeted retries routed to the owning agent,
+> - downstream invalidation of dependent steps.
+>
+> The subagents are `requirements-formalizer`, `dotnet-researcher`, `data-researcher`,
+> `architecture-researcher`, `quality-validator`, and `study-planner`.
+> `scripts/state.ps1` manages state with locking (PowerShell 7+) and is covered by
+> `tests/run-tests.ps1`. The Microsoft Learn MCP server is configured in `.mcp.json`
+> (§9.1). On 2026-10-12, one real run exercised the whole Phase 3A path end to end, from
+> requirements through plan validation. Every step passed on attempt 1. The retry and
+> invalidation paths are covered only by fixture tests, because the real run had no gate
+> failure.
+> Not implemented yet: human approval, HTML, resume (§7), hooks, and revisions of passed
+> artifacts (§6.2). Known gaps are listed in §6.3.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -135,6 +144,29 @@ The coordinator writes the selection and a one-line reason for each agent into
   research agent means adding it there, in `.claude/agents/`, and in the coordinator's
   selection table.
 
+### 3.2 Mandatory topics and the coverage map
+
+- **Mandatory topics** are the knowledge gaps the user stated plus any topics they
+  explicitly asked for, verbatim. `requirements-formalizer` writes them to the
+  `mandatory_topics` front matter of `requirements.md`. Derived topics, strengths, and
+  validator suggestions are **optional**. An optional topic can only produce an advisory
+  finding and never fails a gate.
+- `requirements.md` also records `time_budget_hours`. It is a number only when the user's
+  own numbers determine it; otherwise it is `unspecified`, and the plan must state its
+  assumed budget.
+- `research-selection.json` contains a `coverage` map: each mandatory topic → the assigned
+  research topic(s) that cover it. `state.ps1 select` rejects a selection that leaves any
+  mandatory topic unmapped. If no research agent can cover a mandatory topic, the
+  coordinator stops and tells the user. Mandatory topics are never planned without
+  research.
+
+### 3.3 Synthesis and validation agents (implemented)
+
+| Agent | Responsibility | Artifacts | Tools |
+|---|---|---|---|
+| `quality-validator` | Coverage mode: do the research artifacts together cover every mandatory topic? It also finds conflicts, unsupported claims, and misplaced responsibility. Plan mode: does the plan meet the requirements? It names the owner of every finding and never edits what it validates. | `validation/coverage.{json,md}`, `validation/plan.{json,md}` | `Read`, `Write`, `microsoft_docs_fetch` (at most 5 claim checks per report) |
+| `study-planner` | Synthesizes `plan.md` from requirements and validated research. It prioritizes the confirmed gaps, stays within the budget, and cites only URLs that appear in research. It does not research. | `plan.md` | `Read`, `Write` |
+
 ---
 
 ## 4. Execution rules: sequential vs. parallel
@@ -142,12 +174,13 @@ The coordinator writes the selection and a one-line reason for each agent into
 **Sequential** (each step depends on the one before):
 
 1. Requirements gathering → `requirements.md`
-2. Agent selection (coordinator)
-3. Research (see below)
-4. Learning-plan synthesis (needs all research)
-5. Plan validation
-6. Human approval
-7. HTML generation
+2. Agent selection (coordinator) → `research-selection.json`, with the coverage map
+3. Research (see below) → `research/<area>.md`
+4. Global coverage gate (`coverage` step, quality-validator) → `validation/coverage.json`
+5. Learning-plan synthesis (`plan` step, study-planner, needs all research) → `plan.md`
+6. Plan validation (`plan-validation` step, quality-validator) → `validation/plan.json`
+7. Human approval (not implemented yet)
+8. HTML generation (not implemented yet)
 
 **Parallel:** independent research subagents (one per topic area) may run at the same
 time. They must write to distinct output paths and must not read each other's output.
@@ -192,8 +225,10 @@ runs/<run-id>/
   research/dotnet.md         # owner: dotnet-researcher
   research/data.md           # owner: data-researcher
   research/architecture.md   # owner: architecture-researcher
-  plan.md                    # owner: plan-author subagent
-  validation/<artifact>.json # owner: validator (subagent or script)
+  validation/coverage.json   # owner: quality-validator (coverage report; .md summary beside it)
+  plan.md                    # owner: study-planner
+  validation/plan.json       # owner: quality-validator (plan report; .md summary beside it)
+  validation/history/        # owner: coordinator (state.ps1 archives every report attempt here)
   approval.json              # owner: coordinator (records the human decision)
   guide.html                 # owner: HTML renderer, written only after approval
 ```
@@ -214,8 +249,21 @@ covers), it puts them in a small YAML front-matter block rather than in a separa
 Artifacts form a dependency chain:
 
 ```
-confirmed-input.md → requirements.md → research/<area>.md → plan.md → validation/plan.json → approval.json → guide.html
+confirmed-input.md → requirements.md → research/<area>.md → validation/coverage.json → plan.md → validation/plan.json → approval.json → guide.html
 ```
+
+**Implemented (Phase 3A):** `state.ps1` records the input hashes of every downstream step
+(`coverage`, `plan`, `plan-validation`) at `start`. On every state save, and before every
+`start`, it resets a downstream step to `pending`, with a fresh 3-attempt budget and an
+`invalidated` history entry, if either of these is true:
+
+- one of its input steps is no longer `passed`,
+- one of its input files changed.
+
+A `complete` whose inputs changed during the attempt returns `stale`, which is not counted
+as a failed attempt. Research steps are not invalidated automatically: `state.ps1` refuses
+to start or complete research on a changed `requirements.md` or `confirmed-input.md`, but
+re-running requirements is not supported yet.
 
 - **Changing an upstream artifact invalidates every artifact downstream of it.** If
   `requirements.md` changes, all research, the plan, the validations, the approval, and the
@@ -256,6 +304,76 @@ Retry policy:
   artifact.
 - Attempt counts are persisted in `state.json`, so a resume does not reset them.
 
+### 6.1 Coverage and plan gates (implemented)
+
+Each gate combines deterministic checks in `state.ps1` with the validator's semantic
+review.
+
+| Gate | Deterministic (`state.ps1 complete`) | Semantic (`quality-validator`) |
+|---|---|---|
+| `coverage` | The report parses and has the schema below. Every mandatory topic is assessed exactly once. Each mapped `### <research topic>` exists. The verdict matches the blocking findings. | Depth per mandatory topic, conflicting findings, unsupported claims, misplaced responsibility |
+| `plan` | Required sections. One `### <mandatory topic>` with a source per topic. The schedule's minutes total at most `budget_hours`, which equals the confirmed budget when there is one. `planned_hours` matches the schedule. Theory, practice, and interview sessions per mandatory topic, plus a revision session. `research_inputs` exist and match the selection. **Every URL appears in a research artifact.** | (done by `plan-validation`) |
+| `plan-validation` | Report schema and verdict, as for coverage | Personalization, session limits, repeated assumptions, grounding against research |
+
+**Report schema:**
+
+- `report`, `run_id`, `generated_by: quality-validator`, and `verdict` (`pass`/`fail`),
+- `mandatory_topics[]` with `topic` and `status` (`covered`/`partial`/`missing`),
+- `findings[]` with `severity` (`blocking`/`advisory`), `category`, `owner`, `topic`,
+  `message`, and `fix`,
+- `optional_recommendations[]`.
+
+A topic that is not `covered` must have a blocking finding. An `optional_topic` finding can
+never be blocking. A Markdown summary must exist beside the JSON.
+
+**Routing (targeted retry):** a failed report gate sends each blocking finding to the step
+that owns it.
+
+| Finding owner | Result |
+|---|---|
+| A research agent | Its `research-<area>` step is marked `failed` by that gate, which counts against its 3 attempts. Only that agent is re-run, with the findings as `GATE_FEEDBACK`. |
+| `study-planner` | The `plan` step is marked failed. Only the planner is re-run. |
+| `quality-validator`, or a malformed report | Only the validator is re-run, using that gate step's own attempts. |
+| `coordinator` or `requirements-formalizer` | Non-retryable. The gate is marked blocked, nobody is re-run, and the run fails and is reported. |
+
+Downstream steps are then invalidated (§5.2). Passed research for other areas is never
+touched. Every report attempt is archived in `validation/history/`.
+
+### 6.2 Gate-failure retries vs. requested revisions
+
+These are two different mechanisms, and they must stay separate.
+
+| | Gate-failure retry (implemented) | Requested revision (not implemented) |
+|---|---|---|
+| Trigger | A deterministic gate fails, or a validator report has a **blocking** finding | An **advisory** finding the coordinator wants fixed, or the user choosing "request changes" at approval (§8) |
+| Step state | Step is `running` or `failed` | Step has already `passed` |
+| Who decides | `state.ps1` routes the finding to its owner automatically | The coordinator or the user, deliberately |
+| Budget | Counts against the owner's 3 attempts | Tracked separately; never uses up gate attempts |
+| Downstream | Dependent steps are invalidated (§5.2) | Same: dependent steps must be invalidated and re-validated |
+
+Until revisions exist, a passed artifact is final for its run. Advisory findings are
+reported to the user and stay in the validator report. Nobody acts on them automatically.
+The coordinator must **not** edit an artifact itself to apply an advisory fix (§5).
+
+### 6.3 Known limitations (Phase 3A)
+
+- **Passed plans cannot be reopened.** `state.ps1 start` refuses a `passed` step, `fail`
+  only accepts a `running` step, and a step is reopened only by a changed input or a routed
+  blocking finding. A passed plan therefore cannot be sent back to `study-planner`, either
+  for advisory findings or for user-requested changes.
+- **Advisory findings are recorded but not routed.** Only blocking findings are routed to
+  an owner. Advisory findings are counted in `state.json` (`advisory_findings`) and remain
+  in `validation/*.json`.
+- **Manual edits to a passed artifact are only partly detected.** Editing `plan.md` by hand
+  invalidates `plan-validation`, because `plan.md` is one of its inputs. But the `plan` step
+  itself stays `passed` with an outdated `artifact_sha256`, because steps are not
+  re-checked against their own artifact hash. Research artifacts are protected only at
+  `start`/`complete` of downstream steps. The same gap applies to every passed artifact.
+- **`Get-Urls` truncates URLs that contain an apostrophe.** The URL regex in
+  `scripts/state.ps1` stops at `'`, so a Microsoft Learn anchor such as
+  `...#...-microservice's-autonomy` is shortened. Research and plan are parsed the same way,
+  so traceability still matches, but source counts and reported URLs can be wrong.
+
 ---
 
 ## 7. Workflow persistence and resume
@@ -281,7 +399,7 @@ Retry policy:
 - The decision and any feedback go to `approval.json`.
 - "Request changes" sends a targeted revision to the plan owner. This counts toward that
   artifact's retry budget only if it is a gate failure; user-requested revisions are
-  tracked separately.
+  tracked separately (§6.2). Revisions are not implemented yet.
 - **Approval is tied to the exact plan content.** `approval.json` records the SHA-256 hash
   of the `plan.md` the user approved (plus a plan version number for readability).
 - Before rendering, the coordinator recomputes the hash of the current `plan.md`. If it
@@ -375,8 +493,8 @@ Inside a session, `/mcp` shows the server and its tools.
 ## 10. Repository layout
 
 ```
-.claude/agents/     subagent definitions              (requirements + 3 research agents)
-.claude/commands/   /prepare-interview command        (Phase 2B scope)
+.claude/agents/     subagent definitions              (requirements, 3 research, validator, planner)
+.claude/commands/   /prepare-interview command        (Phase 3A scope)
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
 scripts/            deterministic helpers             (state.ps1)

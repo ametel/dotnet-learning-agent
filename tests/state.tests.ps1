@@ -168,12 +168,13 @@ Test-Case 'invalid selections are rejected without changing state' {
 }
 
 Test-Case 'valid selection creates one pending step per selected agent, and only once' {
-    $id = New-PassedRun
+    $id = New-PassedRun -Areas @('dotnet', 'architecture')
     $path = Write-Selection $id (Get-DefaultSelection @('dotnet', 'architecture'))
     $r = Assert-Ok (Invoke-State @('select', '-RunId', $id, '-SelectionFile', $path))
     Assert-Equal 'data-researcher' (@($r.skipped) -join ',')
     $s = Read-RunState $id
-    Assert-Equal 'requirements,research-dotnet,research-architecture' (@($s.steps.Keys) -join ',')
+    Assert-Equal 'requirements,research-dotnet,research-architecture,coverage,plan,plan-validation' (@($s.steps.Keys) -join ',')
+    Assert-Equal 'async internals,concurrency,system design' (@($s.research.coverage | ForEach-Object { $_.mandatory_topic }) -join ',')
     Assert-Equal 'Async internals in .NET|Concurrency in .NET' (@($s.steps.'research-dotnet'.topics) -join '|')
     Assert-Equal 'pending' $s.steps.'research-dotnet'.status
     Assert-Equal 2 @($s.research.selected_agents).Count
@@ -193,8 +194,8 @@ Test-Case 'valid research artifacts pass and record the source count' {
         Assert-Equal 3 $r.source_count "$area"
     }
     $s = Read-RunState $id
-    Assert-Equal 'paused' $s.workflow_status
-    Assert-Equal 'synthesis (not implemented yet)' $s.next_step
+    Assert-Equal 'in_progress' $s.workflow_status
+    Assert-Equal 'coverage' $s.current_step
     Assert-Equal 0 @($s.failed_steps).Count
     Assert-NoLeftovers $id
 }

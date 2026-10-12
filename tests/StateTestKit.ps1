@@ -101,10 +101,42 @@ $script:RequirementsHeadings = @(
     '## Acceptance Criteria', '## Open Questions and Assumptions'
 )
 
-function Get-RequirementsText([int]$Blocking = 0, [string[]]$OmitHeadings = @(), [string]$BlockingValue) {
+# Mandatory topics (requirements.md front matter) per research area, and the research topic
+# each one maps to in research-selection.json.
+$script:MandatoryByArea = [ordered]@{
+    dotnet       = [ordered]@{ 'async internals' = 'Async internals in .NET'; 'concurrency' = 'Concurrency in .NET' }
+    data         = [ordered]@{ 'EF Core performance' = 'EF Core performance' }
+    architecture = [ordered]@{ 'system design' = 'System design' }
+}
+
+function Get-MandatoryTopics([string[]]$Areas = @('dotnet', 'data', 'architecture')) {
+    @(foreach ($a in $script:MandatoryByArea.Keys) { if ($Areas -contains $a) { $script:MandatoryByArea[$a].Keys } })
+}
+
+function Get-RequirementsText {
+    param(
+        [int]$Blocking = 0,
+        [string[]]$OmitHeadings = @(),
+        [string]$BlockingValue,
+        [string[]]$Mandatory = (Get-MandatoryTopics),
+        [string]$Budget = '15',
+        [string[]]$OptionalTopics = @('ASP.NET Core Web APIs review')
+    )
     $value = if ($PSBoundParameters.ContainsKey('BlockingValue')) { $BlockingValue } else { "$Blocking" }
-    $lines = @('---', 'artifact: requirements', 'generated_by: requirements-formalizer', "blocking_open_questions: $value", '---', '')
-    foreach ($h in $script:RequirementsHeadings) { if ($OmitHeadings -notcontains $h) { $lines += @($h, 'Content.', '') } }
+    $lines = @('---', 'artifact: requirements', 'generated_by: requirements-formalizer', "blocking_open_questions: $value")
+    if ($Mandatory.Count) { $lines += @('mandatory_topics:') + @($Mandatory | ForEach-Object { "  - $_" }) }
+    if ($Budget) { $lines += "time_budget_hours: $Budget" }
+    $lines += @('---', '')
+    foreach ($h in $script:RequirementsHeadings) {
+        if ($OmitHeadings -contains $h) { continue }
+        $lines += $h
+        switch ($h) {
+            '## Knowledge Gaps' { $lines += @($Mandatory | ForEach-Object { "- $_ (stated)" }) }
+            '## Topics' { $lines += @($Mandatory | ForEach-Object { "- $_ | High | (stated)" }) + @($OptionalTopics | ForEach-Object { "- $_ | Low | (derived)" }) }
+            default { $lines += 'Content.' }
+        }
+        $lines += ''
+    }
     $lines -join "`n"
 }
 
@@ -112,12 +144,12 @@ function Write-Requirements([string]$RunId, [string]$Text = (Get-RequirementsTex
     Set-Content -LiteralPath (Join-Path (Get-RunDir $RunId) 'requirements.md') -Value $Text -Encoding utf8NoBOM -NoNewline
 }
 
-# A run whose requirements step has passed.
-function New-PassedRun([int]$Blocking = 0) {
+# A run whose requirements step has passed. Mandatory topics default to those of $Areas.
+function New-PassedRun([int]$Blocking = 0, [string[]]$Areas = @('dotnet', 'data', 'architecture'), [string]$Budget = '15') {
     $id = New-Run
     Write-ConfirmedInput $id
     Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'requirements')) | Out-Null
-    Write-Requirements $id (Get-RequirementsText -Blocking $Blocking)
+    Write-Requirements $id (Get-RequirementsText -Blocking $Blocking -Mandatory (Get-MandatoryTopics $Areas) -Budget $Budget)
     Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'requirements', '-AgentId', 'req-agent')) | Out-Null
     return $id
 }
@@ -136,17 +168,20 @@ function Write-Selection([string]$RunId, $Selection) {
 }
 
 function Get-DefaultSelection([string[]]$Areas = @('dotnet', 'data', 'architecture')) {
-    $selected = @(); $notSelected = @()
+    $selected = @(); $notSelected = @(); $coverage = @()
     foreach ($area in $script:DefaultTopics.Keys) {
-        if ($Areas -contains $area) { $selected += @{ agent = $script:AgentByArea[$area]; topics = $script:DefaultTopics[$area]; reason = "Gap in $area." } }
+        if ($Areas -contains $area) {
+            $selected += @{ agent = $script:AgentByArea[$area]; topics = $script:DefaultTopics[$area]; reason = "Gap in $area." }
+            foreach ($m in $script:MandatoryByArea[$area].Keys) { $coverage += @{ mandatory_topic = $m; research_topics = @($script:MandatoryByArea[$area][$m]) } }
+        }
         else { $notSelected += @{ agent = $script:AgentByArea[$area]; reason = "No $area gap." } }
     }
-    @{ selected = $selected; not_selected = $notSelected }
+    @{ selected = $selected; not_selected = $notSelected; coverage = $coverage }
 }
 
 # A run with requirements passed and the given research areas selected.
-function New-SelectedRun([string[]]$Areas = @('dotnet', 'data', 'architecture')) {
-    $id = New-PassedRun
+function New-SelectedRun([string[]]$Areas = @('dotnet', 'data', 'architecture'), [string]$Budget = '15') {
+    $id = New-PassedRun -Areas $Areas -Budget $Budget
     $path = Write-Selection $id (Get-DefaultSelection $Areas)
     Assert-Ok (Invoke-State @('select', '-RunId', $id, '-SelectionFile', $path)) | Out-Null
     return $id
@@ -173,6 +208,101 @@ function Get-ResearchText {
 
 function Write-Research([string]$RunId, [string]$Area, [string]$Text = (Get-ResearchText -Area $Area)) {
     Set-Content -LiteralPath (Join-Path (Get-RunDir $RunId) "research/$Area.md") -Value $Text -Encoding utf8NoBOM -NoNewline
+}
+
+# Runs start → write valid artifact → complete for each research area.
+function Complete-Research([string]$RunId, [string[]]$Areas = @('dotnet', 'data', 'architecture')) {
+    foreach ($area in $Areas) {
+        Assert-Ok (Invoke-State @('start', '-RunId', $RunId, '-Step', "research-$area")) | Out-Null
+        Write-Research $RunId $area
+        Assert-Ok (Invoke-State @('complete', '-RunId', $RunId, '-Step', "research-$area", '-AgentId', "agent-$area")) | Out-Null
+    }
+}
+
+# A quality-validator report. $Statuses maps mandatory topic -> covered|partial|missing
+# (default: all covered). $Findings are hashtables with severity/category/owner/message/topic.
+function Write-ValidatorReport {
+    param(
+        [string]$RunId,
+        [ValidateSet('coverage', 'plan')][string]$Report,
+        [string[]]$Mandatory = (Get-MandatoryTopics),
+        [hashtable]$Statuses = @{},
+        [object[]]$Findings = @(),
+        [string]$Verdict,
+        [switch]$NoSummary
+    )
+    $blocking = @($Findings | Where-Object { $_.severity -eq 'blocking' })
+    if (-not $Verdict) { $Verdict = if ($blocking.Count) { 'fail' } else { 'pass' } }
+    $obj = [ordered]@{
+        report           = $Report
+        run_id           = $RunId
+        generated_by     = 'quality-validator'
+        verdict          = $Verdict
+        mandatory_topics = @($Mandatory | ForEach-Object { [ordered]@{ topic = $_; status = $(if ($Statuses[$_]) { $Statuses[$_] } else { 'covered' }); evidence = 'section present' } })
+        findings         = @($Findings)
+        optional_recommendations = @('ASP.NET Core Web APIs review')
+    }
+    $dir = Join-Path (Get-RunDir $RunId) 'validation'
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $obj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $dir "$Report.json") -Encoding utf8NoBOM
+    if (-not $NoSummary) { "# Validation: $Report`n`nVerdict: $Verdict" | Set-Content -LiteralPath (Join-Path $dir "$Report.md") -Encoding utf8NoBOM }
+}
+
+function New-Finding([string]$Owner, [string]$Message, [string]$Severity = 'blocking', [string]$Category = 'missing_coverage', [string]$Topic) {
+    $f = [ordered]@{ id = "F$([guid]::NewGuid().ToString('N').Substring(0, 4))"; severity = $Severity; category = $Category; owner = $Owner; message = $Message; fix = 'Fix it.' }
+    if ($Topic) { $f.topic = $Topic }
+    $f
+}
+
+# A plan.md that passes the deterministic gate unless told otherwise.
+function Get-PlanText {
+    param(
+        [string[]]$Areas = @('dotnet', 'data', 'architecture'),
+        [string[]]$Mandatory = (Get-MandatoryTopics $Areas),
+        [string]$Budget = '15',
+        [int]$SessionMinutes = 60,
+        [string[]]$OmitTopics = @(),
+        [string]$ExtraUrl,
+        [string]$PlannedHours
+    )
+    $topics = @($Mandatory | Where-Object { $OmitTopics -notcontains $_ })
+    $url = 'https://learn.microsoft.com/dotnet/a'
+    $rows = @(); $n = 0
+    foreach ($t in $topics) {
+        $rows += "| $(++$n) | 1 | $t | theory, practice | $SessionMinutes | $url |"
+        $rows += "| $(++$n) | 2 | $t | interview | $SessionMinutes | $url |"
+    }
+    $rows += "| $(++$n) | 3 | All topics | revision, mock | $SessionMinutes | $url |"
+    $total = [math]::Round($n * $SessionMinutes / 60, 2)
+    if (-not $PlannedHours) { $PlannedHours = "$total" }
+    $lines = @('---', 'artifact: plan', 'generated_by: study-planner', "budget_hours: $Budget", "planned_hours: $PlannedHours", 'research_inputs:')
+    $lines += @($Areas | ForEach-Object { "  - research/$_.md" })
+    $lines += @('---', '', '# Study Plan: Senior .NET backend', '', '## Summary', 'Plan.', '', '## Assumptions', '- Latest LTS .NET.', '',
+        '## Time Budget', "$total of $Budget hours.", '', '## Schedule', '| # | Week | Topic | Activities | Minutes | Sources |', '|---|---|---|---|---|---|')
+    $lines += $rows
+    $lines += @('', '## Topic Plans', '')
+    foreach ($t in $topics) { $lines += @("### $t", "- Theory: read [docs]($url).", '- Practice: exercise.', '- Interview: questions.', '') }
+    $lines += @('## Revision and Mock Interviews', 'Week 3 mock.', '', '## Sources', "- Docs: $url")
+    if ($ExtraUrl) { $lines += "- Extra: $ExtraUrl" }
+    $lines += @('', '## Optional Extensions', '- ASP.NET Core Web APIs review.')
+    $lines -join "`n"
+}
+
+function Write-Plan([string]$RunId, [string]$Text) {
+    Set-Content -LiteralPath (Join-Path (Get-RunDir $RunId) 'plan.md') -Value $Text -Encoding utf8NoBOM -NoNewline
+}
+
+# Drives a run through a passing coverage gate.
+function Complete-Coverage([string]$RunId, [string[]]$Areas = @('dotnet', 'data', 'architecture')) {
+    Assert-Ok (Invoke-State @('start', '-RunId', $RunId, '-Step', 'coverage')) | Out-Null
+    Write-ValidatorReport -RunId $RunId -Report coverage -Mandatory (Get-MandatoryTopics $Areas)
+    Assert-Ok (Invoke-State @('complete', '-RunId', $RunId, '-Step', 'coverage', '-AgentId', 'validator-1')) | Out-Null
+}
+
+function Complete-Plan([string]$RunId, [string[]]$Areas = @('dotnet', 'data', 'architecture')) {
+    Assert-Ok (Invoke-State @('start', '-RunId', $RunId, '-Step', 'plan')) | Out-Null
+    Write-Plan $RunId (Get-PlanText -Areas $Areas)
+    Assert-Ok (Invoke-State @('complete', '-RunId', $RunId, '-Step', 'plan', '-AgentId', 'planner-1')) | Out-Null
 }
 
 # No lock file and no temp files may be left in a run directory after operations finish.

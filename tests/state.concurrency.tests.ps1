@@ -80,7 +80,7 @@ Test-Case "parallel research lifecycle: 3 concurrent starts then 3 concurrent co
             Assert-Equal 1 @($e.history).Count "iteration $n $area history"
             Assert-Equal 3 $e.source_count
         }
-        Assert-Equal 'paused' $s.workflow_status "iteration $n workflow"
+        Assert-Equal 'coverage' $s.current_step "iteration ${n}: next step is the coverage gate"
         Assert-BatchHealthy $b2 $id "iteration $n completes"
     }
 }
