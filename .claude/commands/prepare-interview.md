@@ -350,8 +350,11 @@ is out of attempts), skip to Step 15.
    ```
    pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step plan-validation -AgentId <agent-id>
    ```
-4. If it failed, follow Step 14. If it passed, `state.json` shows `workflow_status: paused`
-   and `next_step: approval (not implemented yet)`. Go to Step 15.
+4. If it failed, follow Step 14. If it passed, `state.json` shows
+   `workflow_status: awaiting_approval`. The approval state machine exists in `state.ps1`,
+   but capturing the user's decision does not yet (Phase 4B), so do not run
+   `state.ps1 decide`, never write `approval.json` or `approval/decisions.jsonl`, and do not
+   ask for approval. Go to Step 15.
 
 ## Step 14: Targeted retries after a failed gate
 

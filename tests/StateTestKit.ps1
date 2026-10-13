@@ -17,6 +17,8 @@ function Initialize-TestKit([string]$StateScript) {
 # ---------------------------------------------------------------- test runner and asserts
 
 function Test-Case([string]$Name, [scriptblock]$Body) {
+    # run-tests.ps1 -Filter <regex> runs only the matching tests.
+    if ($script:CaseFilter -and $Name -notmatch $script:CaseFilter) { return }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         & $Body

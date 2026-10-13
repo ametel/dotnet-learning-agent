@@ -59,7 +59,7 @@ Test-Case 'selection must map every mandatory topic to an assigned research topi
 
 Write-Section 'successful coverage and synthesis'
 
-Test-Case 'full path: research -> coverage -> plan -> plan-validation passes and pauses for approval' {
+Test-Case 'full path: research -> coverage -> plan -> plan-validation passes and awaits approval' {
     $id = New-ResearchedRun
     Assert-Fails (Invoke-State @('start', '-RunId', $id, '-Step', 'plan')) "Input step 'coverage' is pending"
     Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'coverage')) | Out-Null
@@ -76,8 +76,9 @@ Test-Case 'full path: research -> coverage -> plan -> plan-validation passes and
     Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'plan-validation')) | Out-Null
     Write-ValidatorReport -RunId $id -Report plan
     $v = Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'plan-validation', '-AgentId', 'v2'))
-    Assert-Equal 'paused' $v.workflow_status
-    Assert-Equal 'approval (not implemented yet)' $v.next_step
+    Assert-Equal 'awaiting_approval' $v.workflow_status
+    Assert-Match '^approval: the user.s decision' $v.next_step
+    Assert-Equal 'awaiting_decision' (Read-RunState $id).steps.approval.status
 
     $s = Read-RunState $id
     foreach ($name in 'coverage', 'plan', 'plan-validation') {
@@ -256,7 +257,7 @@ Test-Case 'plan validation blames the planner: only the plan is retried, then re
     Assert-Equal 1 (Assert-Ok (Invoke-State @('start', '-RunId', $id, '-Step', 'plan-validation'))).attempt
     Write-ValidatorReport -RunId $id -Report plan
     $v = Assert-Ok (Invoke-State @('complete', '-RunId', $id, '-Step', 'plan-validation'))
-    Assert-Equal 'paused' $v.workflow_status
+    Assert-Equal 'awaiting_approval' $v.workflow_status
 }
 
 Test-Case 'plan validation blames research: research reopens and coverage, plan, and validation are all invalidated' {

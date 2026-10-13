@@ -10,6 +10,7 @@
 
     Steps, in dependency order:
       requirements → research-<area> (parallel) → coverage → plan → plan-validation
+        → approval (the user's decision) → render (final HTML; the renderer is not built yet)
 
     Actions:
       init      Create a new run directory and state.json. Prints run paths as JSON.
@@ -24,6 +25,16 @@
       revise    Reopen a passed, validated artifact (only `plan`) for a user-requested
                 revision described in -RequestFile. Records the request first; the revised
                 version gets its own attempt budget (CLAUDE.md §6.2).
+      decide    Apply the oldest unconsumed user decision (approve, reject, request_changes)
+                from the decision ledger runs/<id>/approval/decisions.jsonl. Only valid,
+                unconsumed evidence bound to the current validated plan's SHA-256 is applied;
+                approval.json and state.json are never evidence (CLAUDE.md §8). This script
+                has no command that writes ledger entries.
+      quarantine-ledger
+                Move a structurally invalid, unconsumed ledger suffix (from the first malformed
+                line to the end) to approval/quarantine/q-NNN.jsonl and record it. Refuses a
+                valid ledger, never touches consumed entries, and never creates a decision.
+                An interrupted run is resumed by running it again.
       verify    Check that every passed artifact still has its recorded hash.
       resolve   Resolve an integrity violation of one step: -Resolution restore (copy back the
                 accepted version) or discard (re-run the owner on a fresh budget).
@@ -44,7 +55,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('init', 'select', 'start', 'complete', 'fail', 'revise', 'verify', 'resolve', 'show')]
+    [ValidateSet('init', 'select', 'start', 'complete', 'fail', 'revise', 'decide', 'quarantine-ledger', 'verify', 'resolve', 'show')]
     [string]$Action,
 
     [string]$RunId,
@@ -95,6 +106,13 @@ $FindingCategories = @('missing_coverage', 'conflicting_findings', 'unsupported_
 
 $PlanActivities = @('theory', 'practice', 'interview', 'revision', 'mock')
 
+# Human approval (CLAUDE.md §8). Decisions are evidence lines in an append-only, hash-chained
+# ledger. Only the UserPromptSubmit hook (Phase 4B) writes it; this script only reads it.
+$LedgerPath = 'approval/decisions.jsonl'
+$LedgerSource = 'user-prompt-submit'
+$LedgerDecisions = @('approve', 'reject', 'request_changes')
+$ZeroSha256 = '0' * 64
+
 # Section headings each artifact type must contain (structure gate).
 $RequirementsHeadings = @(
     '# Interview Preparation Requirements'
@@ -138,11 +156,13 @@ function Get-StringHash256([string]$Text) {
     try { (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant() } finally { $stream.Dispose() }
 }
 
-function Write-JsonAtomic([string]$Path, $Object) {
-    $json = $Object | ConvertTo-Json -Depth 10
+function Write-JsonAtomic([string]$Path, $Object) { Write-TextAtomic $Path (($Object | ConvertTo-Json -Depth 10) + "`n") }
+
+# UTF-8 without BOM, written to a temp file in the same directory, then renamed over $Path.
+function Write-TextAtomic([string]$Path, [string]$Text) {
     $tmp = "$Path.tmp-$([guid]::NewGuid().ToString('N'))"
     try {
-        [System.IO.File]::WriteAllText($tmp, $json + "`n", [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($tmp, $Text, [System.Text.UTF8Encoding]::new($false))
         # On Windows, replacing a file fails while another process (a reader outside the lock,
         # an editor, an antivirus scan) has it open. Retry briefly instead of failing the step.
         $deadline = (Get-Date).AddSeconds(5)
@@ -189,13 +209,17 @@ function Read-State([string]$RunDir) {
     $params = @{ AsHashtable = $true }
     # Keep ISO timestamps as strings instead of converting them to DateTime (PowerShell 7.5+).
     if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $params.DateKind = 'String' }
-    Get-Content -LiteralPath (Join-Path $RunDir 'state.json') -Raw | ConvertFrom-Json @params
+    $state = Get-Content -LiteralPath (Join-Path $RunDir 'state.json') -Raw | ConvertFrom-Json @params
+    # Runs created before approval existed get the approval and render steps on first read.
+    Initialize-ApprovalSteps $state
+    return $state
 }
 
 function Save-State([string]$RunDir, $State) {
     $violations = Update-Integrity $RunDir $State
     Update-Invalidation $RunDir $State $violations
     Update-Revisions $State
+    Update-Approval $RunDir $State $violations
     Update-Workflow $State
     $State.updated_at = Get-Now
     Write-JsonAtomic (Join-Path $RunDir 'state.json') $State
@@ -238,6 +262,8 @@ function Get-UpstreamSteps($State, [string]$Name) {
         'coverage' { @('requirements') + $research }
         'plan' { @('requirements') + $research + @('coverage') }
         'plan-validation' { @('requirements') + $research + @('coverage', 'plan') }
+        'approval' { @('requirements') + $research + @('coverage', 'plan', 'plan-validation') }
+        'render' { @('requirements') + $research + @('coverage', 'plan', 'plan-validation', 'approval', 'approval-ledger') }
         default { @() }
     }
 }
@@ -373,10 +399,20 @@ function Update-Invalidation([string]$RunDir, $State, $Violations = @()) {
 function Get-IntegrityViolations([string]$RunDir, $State) {
     $found = foreach ($name in @($State.steps.Keys)) {
         $e = $State.steps[$name]
-        if ($e.status -ne 'passed' -or -not $e.artifact_sha256) { continue }
+        # A recorded decision (approval.json) is held to its hash just like a passed artifact.
+        if ($e.status -notin 'passed', 'approved', 'rejected' -or -not $e.artifact_sha256) { continue }
         $actual = Get-InputHash (Get-ArtifactPath $RunDir $e)
         if ($actual -ne $e.artifact_sha256) {
             [ordered]@{ step = $name; artifact = $e.artifact; expected_sha256 = $e.artifact_sha256; actual_sha256 = $actual }
+        }
+    }
+    # Consumed ledger entries are history: they may never change, disappear, or be reordered.
+    $a = $State.steps['approval']
+    if ($a -and [int]$a.consumed_through -gt 0) {
+        $ledger = Read-Ledger $RunDir
+        $actual = if ($ledger.lines.Count -ge [int]$a.consumed_through) { Get-LedgerPrefixSha $ledger ([int]$a.consumed_through) } else { $null }
+        if ($actual -ne $a.consumed_sha256) {
+            $found = @($found) + @([ordered]@{ step = 'approval-ledger'; artifact = "runs/$RunId/$LedgerPath"; expected_sha256 = $a.consumed_sha256; actual_sha256 = $actual })
         }
     }
     , @($found)
@@ -402,6 +438,10 @@ function Update-Integrity([string]$RunDir, $State) {
 function Format-Violation($V) {
     $rel = $V.artifact.Substring("runs/$RunId/".Length)
     $found = if ($V.actual_sha256) { $V.actual_sha256.Substring(0, 12) } else { 'missing' }
+    if ($V.step -eq 'approval-ledger') {
+        return "$rel changed after decisions in it were consumed (recorded $($V.expected_sha256.Substring(0, 12)), found $found). " +
+        'Consumed entries can never change: put the consumed lines back exactly as they were, by hand.'
+    }
     $fix = if ($V.step -eq 'requirements') { 'restore' } else { 'restore|discard' }
     "$rel changed after it passed (step '$($V.step)'; recorded $($V.expected_sha256.Substring(0, 12)), found $found). " +
     "Restore the file, or run: state.ps1 resolve -RunId $RunId -Step $($V.step) -Resolution $fix"
@@ -507,6 +547,304 @@ function Test-RevisionRequest([string]$RunDir, $State, $Request) {
     return , $errors
 }
 
+# Reasons a revision of step $Name cannot be opened now (empty = it can), in the order
+# `revise` reports them.
+function Get-RevisionBlockers($State, [string]$Name) {
+    $entry = $State.steps[$Name]
+    $errors = [System.Collections.Generic.List[string]]::new()
+    $open = @(Get-List $State['revisions'] | Where-Object { $_.status -eq 'open' })
+    if ($open.Count -gt 0) { $errors.Add("Revision '$($open[0].id)' is still open. Finish it before requesting another.") }
+    if ($entry.status -ne 'passed') { $errors.Add("Step '$Name' is $($entry.status); only a passed artifact can be revised.") }
+    $running = @($State.steps.Keys | Where-Object { $State.steps[$_].status -eq 'running' })
+    if ($running.Count -gt 0) { $errors.Add("Cannot revise while step(s) are running: $($running -join ', ').") }
+    $order = @($DownstreamSteps.Keys)
+    $after = @($order | Select-Object -Skip ([array]::IndexOf($order, $Name) + 1))
+    $unvalidated = @($after | Where-Object { $State.steps[$_].status -ne 'passed' })
+    if ($unvalidated.Count -gt 0) { $errors.Add("Step '$Name' can be revised only after it is validated; not passed yet: $($unvalidated -join ', ').") }
+    $used = @(Get-List $State['revisions'] | Where-Object { $_.step -eq $Name }).Count
+    if ($used -ge $MaxRevisions) { $errors.Add("Revision limit reached: step '$Name' has used all $MaxRevisions revisions for this run.") }
+    if ($State.steps['approval'] -and $State.steps.approval.status -eq 'rejected') { $errors.Add('The plan was rejected; rejection is final for this run.') }
+    return , $errors
+}
+
+# Records a validated revision request and reopens step $Name (CLAUDE.md §6.2). The request
+# is archived first: copied byte for byte from $CopyFrom, or serialized when there is no file.
+function Open-Revision([string]$RunDir, $State, [string]$Name, $Request, [string]$CopyFrom) {
+    $entry = $State.steps[$Name]
+    $order = @($DownstreamSteps.Keys)
+    $after = @($order | Select-Object -Skip ([array]::IndexOf($order, $Name) + 1))
+    $used = @(Get-List $State['revisions'] | Where-Object { $_.step -eq $Name }).Count
+
+    # Record the request (and the version it revises) before reopening anything.
+    Initialize-LegacyVersion $RunDir $entry $Name
+    $base = @(Get-List $entry.accepted_versions)[-1]
+    if (-not $State['revisions']) { $State.revisions = @() }
+    $id = 'rev-{0:000}' -f (@(Get-List $State.revisions).Count + 1)
+    New-Item -ItemType Directory -Path (Join-Path $RunDir 'revisions') -Force | Out-Null
+    $archived = "revisions/$id-request.json"
+    if ($CopyFrom) { Copy-Item -LiteralPath $CopyFrom -Destination (Join-Path $RunDir $archived) -Force }
+    else { Write-JsonAtomic (Join-Path $RunDir $archived) $Request }
+    $record = [ordered]@{
+        id                = $id
+        step              = $Name
+        artifact          = $entry.artifact
+        owner             = $entry.agent
+        requested_by      = 'user'
+        source            = "$($Request['source'])"
+        advisory_findings = @(Get-List $Request['advisory_findings'])
+        reason            = "$($Request['reason'])"
+        feedback          = "$($Request['feedback'])"
+        user_confirmation = "$($Request['user_confirmation'])"
+        request_file      = "runs/$RunId/$archived"
+        request_sha256    = Get-FileHash256 (Join-Path $RunDir $archived)
+        requested_at      = Get-Now
+        base_version      = $base.version
+        base_sha256       = $base.sha256
+        base_snapshot     = $base.snapshot
+        base_attempt      = $base.attempt
+        status            = 'open'
+        result_version    = $null
+        result_sha256     = $null
+        completed_at      = $null
+    }
+    if ($Request['evidence']) { $record.evidence = $Request['evidence'] }
+    $State.revisions = @(Get-List $State.revisions) + @($record)
+
+    # Reopen only the owner's step. Its gate history stays as it is; the new version
+    # gets its own attempt budget. Downstream steps are invalidated on save.
+    $entry.status = 'pending'
+    $entry.attempts = 0
+    $entry.retry_blocked = $false
+    $entry.artifact_sha256 = $null
+    $entry.active_revision = $id
+    $entry.revisions = @(Get-List $entry['revisions']) + @($id)
+    $before = [ordered]@{}
+    foreach ($n in $after) { $before[$n] = $State.steps[$n].status }
+    return [ordered]@{ record = $record; base = $base; used = $used; after = $after; before = $before }
+}
+
+# ---------------------------------------------------------------- human approval (CLAUDE.md §8)
+
+# The approval and render steps follow plan-validation. Runs selected before they existed get
+# them on first read.
+function Initialize-ApprovalSteps($State) {
+    if (-not $State.steps.Contains('plan-validation') -or $State.steps.Contains('approval')) { return }
+    $State.steps.approval = [ordered]@{
+        status                 = 'pending'   # pending | awaiting_decision | approved | rejected
+        agent                  = 'user'
+        artifact               = "runs/$RunId/approval.json"
+        ledger                 = "runs/$RunId/$LedgerPath"
+        attempts               = 0
+        artifact_sha256        = $null
+        agent_id               = $null
+        completed_at           = $null
+        decision               = $null
+        decision_id            = $null
+        ledger_seq             = $null
+        ledger_entry_sha256    = $null
+        plan_sha256            = $null
+        plan_version           = $null
+        plan_validation_sha256 = $null
+        consumed_through       = 0
+        consumed_sha256        = $null
+        decisions              = @()
+        history                = @()
+    }
+    $State.steps.render = [ordered]@{
+        status          = 'pending'
+        agent           = 'renderer'
+        artifact        = "runs/$RunId/guide.html"
+        attempts        = 0
+        max_attempts    = $MaxAttempts
+        inputs_sha256   = $null
+        artifact_sha256 = $null
+        agent_id        = $null
+        started_at      = $null
+        completed_at    = $null
+        history         = @()
+    }
+}
+
+# The ledger as raw lines (exact text, line endings removed) and the SHA-256 of each line.
+# The hash of a line is what the next entry's prev_sha256 and the state refer to.
+function Read-Ledger([string]$RunDir) {
+    $path = Join-Path $RunDir $LedgerPath
+    $ledger = [ordered]@{ exists = $false; lines = @(); shas = @() }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $ledger }
+    $ledger.exists = $true
+    $text = [System.IO.File]::ReadAllText($path, [System.Text.UTF8Encoding]::new($false))
+    $lines = [System.Collections.Generic.List[string]]::new()
+    foreach ($l in $text -split "`n") { $lines.Add($l.TrimEnd("`r")) }
+    while ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') { $lines.RemoveAt($lines.Count - 1) }
+    $ledger.lines = @($lines)
+    $ledger.shas = @($lines | ForEach-Object { Get-StringHash256 $_ })
+    return $ledger
+}
+
+# Hash of the first $Count ledger lines; recorded when entries are consumed.
+function Get-LedgerPrefixSha($Ledger, [int]$Count) { Get-StringHash256 (@($Ledger.lines | Select-Object -First $Count) -join "`n") }
+
+# Structural problems of one ledger line (empty = well formed). The format is fixed:
+#   schema 1, seq (1-based, contiguous), decision_id "dec-<seq:000>", prev_sha256 (hash of the
+#   previous line, 64 zeros for the first), run_id, decision (approve | reject | request_changes),
+#   plan_sha256, plan_version, feedback (request_changes only), prompt_sha256, prompt_id,
+#   session_id, recorded_at, source "user-prompt-submit".
+function Get-LedgerLineProblems([string]$Line, [int]$Seq, [string]$PrevSha) {
+    $p = [System.Collections.Generic.List[string]]::new()
+    try { $e = $Line | ConvertFrom-Json -AsHashtable } catch { $e = $null }
+    if ($e -isnot [System.Collections.IDictionary]) { $p.Add("line $Seq is not a JSON object."); return , $p }
+    if ("$($e['schema'])" -ne '1') { $p.Add("line ${Seq}: 'schema' must be 1.") }
+    if ("$($e['seq'])" -ne "$Seq") { $p.Add("line ${Seq}: 'seq' must be $Seq (entries are contiguous).") }
+    if ("$($e['decision_id'])" -ne ('dec-{0:000}' -f $Seq)) { $p.Add("line ${Seq}: 'decision_id' must be $('dec-{0:000}' -f $Seq).") }
+    if ("$($e['prev_sha256'])" -ne $PrevSha) { $p.Add("line ${Seq}: 'prev_sha256' does not match the previous line (the chain is broken).") }
+    if ("$($e['run_id'])" -ne $RunId) { $p.Add("line ${Seq}: 'run_id' must be '$RunId'.") }
+    if ("$($e['source'])" -ne $LedgerSource) { $p.Add("line ${Seq}: 'source' must be '$LedgerSource'.") }
+    $decision = "$($e['decision'])"
+    if ($decision -notin $LedgerDecisions) { $p.Add("line ${Seq}: 'decision' must be one of $($LedgerDecisions -join ', ').") }
+    foreach ($k in 'plan_sha256', 'prompt_sha256') { if ("$($e[$k])" -cnotmatch '^[0-9a-f]{64}$') { $p.Add("line ${Seq}: '$k' must be 64 lowercase hex characters.") } }
+    if ("$($e['plan_version'])" -notmatch '^[1-9]\d*$') { $p.Add("line ${Seq}: 'plan_version' must be a positive integer.") }
+    foreach ($k in 'prompt_id', 'session_id', 'recorded_at') { if (-not "$($e[$k])".Trim()) { $p.Add("line ${Seq}: '$k' is required.") } }
+    $feedback = "$($e['feedback'])".Trim()
+    if ($decision -eq 'request_changes' -and -not $feedback) { $p.Add("line ${Seq}: a request_changes decision must carry the user's 'feedback'.") }
+    if ($decision -in 'approve', 'reject' -and $feedback) { $p.Add("line ${Seq}: only a request_changes decision carries 'feedback'.") }
+    return , $p
+}
+
+# Structural problems of the whole ledger, checking every line and the chain between them.
+function Get-LedgerProblems($Ledger) {
+    $all = [System.Collections.Generic.List[string]]::new()
+    $prev = $ZeroSha256
+    for ($i = 0; $i -lt $Ledger.lines.Count; $i++) {
+        $lineProblems = Get-LedgerLineProblems $Ledger.lines[$i] ($i + 1) $prev
+        foreach ($p in $lineProblems) { $all.Add($p) }
+        $prev = $Ledger.shas[$i]
+    }
+    return , $all
+}
+
+# 1-based number of the first malformed ledger line (0 = none). The chain makes every line
+# after it untrustworthy too.
+function Get-FirstBadLedgerLine($Ledger) {
+    $prev = $ZeroSha256
+    for ($i = 0; $i -lt $Ledger.lines.Count; $i++) {
+        $lineProblems = Get-LedgerLineProblems $Ledger.lines[$i] ($i + 1) $prev
+        if ($lineProblems.Count -gt 0) { return $i + 1 }
+        $prev = $Ledger.shas[$i]
+    }
+    return 0
+}
+
+# The exact file content for a list of ledger lines.
+function Get-LedgerText([string[]]$Lines) { if ($Lines.Count) { ($Lines -join "`n") + "`n" } else { '' } }
+
+# Why the plan cannot be decided on now (empty = it can): the plan and its validation must
+# have passed, and no revision may be open.
+function Get-ApprovalBlockers($State) {
+    $b = @(foreach ($n in 'plan', 'plan-validation') { if ($State.steps[$n].status -ne 'passed') { "step '$n' is $($State.steps[$n].status)" } })
+    $open = @(Get-List $State['revisions'] | Where-Object { $_.status -eq 'open' })
+    if ($open.Count -gt 0) { $b += "revision '$($open[0].id)' is open" }
+    return , $b
+}
+
+# Ends the recorded decision: approval.json moves to approval/history/ for traceability.
+function Reset-Approval([string]$RunDir, $A, [string]$Result, [string[]]$Reasons) {
+    $path = Get-ArtifactPath $RunDir $A
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        $dir = Join-Path $RunDir 'approval/history'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfff')
+        Move-Item -LiteralPath $path -Destination (Join-Path $dir "$($A.decision_id)-$Result-$stamp.json") -Force
+    }
+    $A.history += @([ordered]@{ result = $Result; decision_id = $A.decision_id; decision = $A.decision; plan_sha256 = $A.plan_sha256; reasons = $Reasons; at = (Get-Now) })
+    Clear-ApprovalDecision $A
+}
+
+function Clear-ApprovalDecision($A) {
+    $A.status = 'pending'
+    $A.artifact_sha256 = $null
+    foreach ($k in 'decision', 'decision_id', 'ledger_seq', 'ledger_entry_sha256', 'plan_sha256', 'plan_version', 'plan_validation_sha256') { $A[$k] = $null }
+}
+
+# Keeps the approval and render steps consistent with the plan on every save. An approval is
+# void as soon as the plan or its validation is no longer the approved one, the chain is not
+# passed, or a revision is open. A manually modified file (an integrity violation, in
+# $Violations) is not a legitimate change: it blocks the run but is never propagated.
+function Update-Approval([string]$RunDir, $State, $Violations = @()) {
+    Initialize-ApprovalSteps $State
+    if (-not $State.steps.Contains('approval')) { return }
+    $a = $State.steps.approval
+    $ignore = @($Violations | ForEach-Object { $_.artifact.Substring("runs/$RunId/".Length) })
+
+    if ($a.status -eq 'approved') {
+        $blockers = Get-ApprovalBlockers $State
+        $reasons = @($blockers)
+        if ('plan.md' -notin $ignore -and (Get-InputHash (Join-Path $RunDir 'plan.md')) -ne $a.plan_sha256) { $reasons += 'plan.md is not the approved plan' }
+        if ('validation/plan.json' -notin $ignore -and (Get-InputHash (Join-Path $RunDir 'validation/plan.json')) -ne $a.plan_validation_sha256) { $reasons += 'validation/plan.json is not the report the plan was approved with' }
+        if ($reasons.Count -gt 0) { Reset-Approval $RunDir $a 'invalidated' $reasons }
+    }
+    if ($a.status -in 'pending', 'awaiting_decision') {
+        # After a discard, the step is pending but may still carry the old decision's fields.
+        if ($a.decision) { Clear-ApprovalDecision $a }
+        $blockers = Get-ApprovalBlockers $State
+        $a.status = if ($blockers.Count -eq 0) { 'awaiting_decision' } else { 'pending' }
+    }
+
+    $r = $State.steps['render']
+    if ($r.status -in 'passed', 'failed' -and $r.inputs_sha256) {
+        $reasons = @()
+        if ($a.status -ne 'approved') { $reasons += "approval is $($a.status)" }
+        foreach ($k in 'plan.md', 'approval.json') {
+            if ($k -notin $ignore -and (Get-InputHash (Join-Path $RunDir $k)) -ne $r.inputs_sha256[$k]) { $reasons += "$k changed" }
+        }
+        if ($reasons.Count -gt 0) { Reset-Invalidated $r $reasons }
+    }
+}
+
+# Problems with the recorded approval (empty = valid). Everything is recomputed from disk and
+# cross-checked: state.json, approval.json, and the consumed ledger entry must all agree with
+# the current plan. A hand-written approval.json, or a state.json edited to say "approved",
+# fails this check unless a consumed ledger entry backs it.
+function Test-ApprovalValid([string]$RunDir, $State) {
+    $p = [System.Collections.Generic.List[string]]::new()
+    $a = $State.steps['approval']
+    if (-not $a) { $p.Add('This run has no approval step.'); return , $p }
+    if ($a.status -ne 'approved') { $p.Add("Approval is '$($a.status)', not approved."); return , $p }
+
+    $path = Get-ArtifactPath $RunDir $a
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $p.Add('approval.json is missing.'); return , $p }
+    if ((Get-FileHash256 $path) -ne $a.artifact_sha256) { $p.Add('approval.json is not the recorded approval.') }
+    try { $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable } catch { $doc = $null }
+    if ($doc -isnot [System.Collections.IDictionary]) { $p.Add('approval.json is not a JSON object.') }
+    else {
+        if ($doc['decision'] -ne 'approved') { $p.Add("approval.json records '$($doc['decision'])', not approved.") }
+        foreach ($k in 'decision_id', 'plan_sha256', 'ledger_entry_sha256') { if ("$($doc[$k])" -ne "$($a[$k])") { $p.Add("approval.json '$k' does not match the recorded decision.") } }
+    }
+
+    $ledger = Read-Ledger $RunDir
+    $seq = [int]$a.ledger_seq
+    if ($seq -lt 1 -or $seq -gt [int]$a.consumed_through -or $ledger.lines.Count -lt $seq) { $p.Add('No consumed ledger entry backs this approval.') }
+    else {
+        $partial = [ordered]@{ lines = @($ledger.lines | Select-Object -First $seq); shas = @($ledger.shas | Select-Object -First $seq) }
+        $ledgerProblems = Get-LedgerProblems $partial
+        foreach ($x in $ledgerProblems) { $p.Add("Ledger: $x") }
+        if ($ledger.shas[$seq - 1] -ne $a.ledger_entry_sha256) { $p.Add('The ledger entry is not the one the approval was recorded from.') }
+        try { $entry = $ledger.lines[$seq - 1] | ConvertFrom-Json -AsHashtable } catch { $entry = $null }
+        if (-not $entry -or $entry['decision'] -ne 'approve' -or $entry['plan_sha256'] -ne $a.plan_sha256) { $p.Add('The ledger entry does not approve this plan.') }
+    }
+
+    $blockers = Get-ApprovalBlockers $State
+    foreach ($b in $blockers) { $p.Add("Not approvable: $b.") }
+    $planSha = Get-InputHash (Join-Path $RunDir 'plan.md')
+    if ($planSha -ne $a.plan_sha256) { $p.Add('plan.md is not the approved plan.') }
+    if ($State.steps.plan.artifact_sha256 -ne $a.plan_sha256) { $p.Add('The accepted plan is not the approved plan.') }
+    $pv = $State.steps.'plan-validation'
+    if (-not $pv.inputs_sha256 -or $pv.inputs_sha256['plan.md'] -ne $a.plan_sha256) { $p.Add('The plan validation was not run on the approved plan.') }
+    if ((Get-InputHash (Join-Path $RunDir 'validation/plan.json')) -ne $a.plan_validation_sha256 -or $pv.artifact_sha256 -ne $a.plan_validation_sha256) { $p.Add('validation/plan.json is not the report the plan was approved with.') }
+    $violations = Get-IntegrityViolations $RunDir $State
+    foreach ($v in $violations) { $p.Add("Integrity violation: $($v.step).") }
+    return , $p
+}
+
 # Derive workflow_status / current_step / next_step from the steps, so they can't drift.
 function Update-Workflow($State) {
     $steps = $State.steps
@@ -555,8 +893,27 @@ function Update-Workflow($State) {
         $State.current_step = $name
         return
     }
-    $State.workflow_status = 'paused'
-    $State.next_step = 'approval (not implemented yet)'
+    $approval = $steps['approval']
+    switch ($approval.status) {
+        'rejected' {
+            # Final: nothing is rendered, revised, or decided again in this run.
+            $State.workflow_status = 'rejected'
+            return
+        }
+        'approved' {
+            $render = $steps.render
+            if ($render.status -eq 'passed') { $State.workflow_status = 'completed'; return }
+            if (Test-Exhausted $render) { $State.workflow_status = 'failed'; return }
+            if ($render.status -in 'running', 'failed') { $State.workflow_status = 'in_progress'; $State.current_step = 'render'; return }
+            $State.workflow_status = 'approved'
+            $State.next_step = 'render (not implemented yet)'
+        }
+        default {
+            $State.workflow_status = 'awaiting_approval'
+            $State.current_step = 'approval'
+            $State.next_step = "approval: the user's decision on the current plan (approve, request changes, or reject)"
+        }
+    }
 }
 
 # ---------------------------------------------------------------- gates
@@ -981,6 +1338,9 @@ try {
             $lock = Enter-StateLock $runDir
             $state = Read-State $runDir
             $entry = Get-StepEntry $state
+            if ($Step -eq 'approval') {
+                throw "Approval is not a step to start. Only the user decides: their decision is captured as ledger evidence ($LedgerPath) and applied with 'state.ps1 decide'."
+            }
             # A manually modified upstream artifact must be resolved before anything builds on it.
             Assert-Integrity $runDir $state $Step
             # Apply pending invalidations first (an input may have changed since the last save),
@@ -991,6 +1351,25 @@ try {
                 throw "Step '$Step' already passed.$hint"
             }
             if ($entry.status -eq 'running') { throw "Step '$Step' is already running (attempt $($entry.attempts)). Complete or fail it first." }
+
+            if ($Step -eq 'render') {
+                # Nothing is rendered without a recorded approval of exactly the current plan.
+                $problems = Test-ApprovalValid $runDir $state
+                if ($problems.Count -gt 0) { throw "Render refused: there is no valid approval of the current plan. $($problems -join ' ')" }
+                if ($entry['retry_blocked']) { throw "Step '$Step' failed with a non-retryable error." }
+                if ($entry.attempts -ge $MaxAttempts) { throw "Step '$Step' has used all $MaxAttempts attempts." }
+                $entry.inputs_sha256 = [ordered]@{
+                    'plan.md'       = Get-InputHash (Join-Path $runDir 'plan.md')
+                    'approval.json' = Get-InputHash (Join-Path $runDir 'approval.json')
+                }
+                $entry.attempts += 1
+                $entry.status = 'running'
+                $entry.started_at = Get-Now
+                $entry.completed_at = $null
+                Save-State $runDir $state
+                [ordered]@{ run_id = $RunId; step = $Step; attempt = $entry.attempts; max_attempts = $MaxAttempts; artifact = $entry.artifact; plan_sha256 = $state.steps.approval.plan_sha256 } | ConvertTo-Json
+                return
+            }
 
             $inputPath = Join-Path $runDir 'confirmed-input.md'
             if (-not (Test-Path -LiteralPath $inputPath)) { throw "Missing confirmed input: runs/$RunId/confirmed-input.md" }
@@ -1050,6 +1429,46 @@ try {
             # Refused, not failed: the attempt stays running and is not counted.
             Assert-Integrity $runDir $state $Step
             if ($AgentId) { $entry.agent_id = $AgentId }
+
+            if ($Step -eq 'render') {
+                # The approval is checked again: it may have been voided during rendering.
+                $validity = Test-ApprovalValid $runDir $state
+                $stale = @($validity)
+                foreach ($k in 'plan.md', 'approval.json') {
+                    if ((Get-InputHash (Join-Path $runDir $k)) -ne $entry.inputs_sha256[$k]) { $stale += "$k changed during rendering" }
+                }
+                if ($stale.Count -gt 0) {
+                    Reset-Invalidated $entry $stale
+                    Save-State $runDir $state
+                    [ordered]@{ run_id = $RunId; step = $Step; result = 'stale'; reasons = $stale; workflow_status = $state.workflow_status } | ConvertTo-Json -Depth 5
+                    exit 1
+                }
+                $guide = Get-ArtifactPath $runDir $entry
+                $approved = $state.steps.approval.plan_sha256
+                $problems = @()
+                if (-not (Test-Path -LiteralPath $guide -PathType Leaf)) { $problems += 'guide.html does not exist.' }
+                else {
+                    $html = Get-Content -LiteralPath $guide -Raw -Encoding utf8
+                    $m = [regex]::Match("$html", '<meta\s+name="plan-sha256"\s+content="([0-9a-f]{64})"\s*/?>')
+                    if (-not $m.Success) { $problems += 'guide.html has no <meta name="plan-sha256" content="..."> tag.' }
+                    elseif ($m.Groups[1].Value -ne $approved) { $problems += "guide.html was rendered from plan $($m.Groups[1].Value.Substring(0, 12)), not the approved plan $($approved.Substring(0, 12))." }
+                }
+                if ($problems.Count -gt 0) {
+                    Set-AttemptFailed $entry $problems
+                    Save-State $runDir $state
+                    [ordered]@{ run_id = $RunId; step = $Step; result = 'failed'; attempt = $entry.attempts; attempts_left = Get-AttemptsLeft $entry; problems = $problems; workflow_status = $state.workflow_status } | ConvertTo-Json -Depth 5
+                    exit 1
+                }
+                $entry.status = 'passed'
+                $entry.artifact_sha256 = Get-FileHash256 $guide
+                $entry.completed_at = Get-Now
+                $accepted = Add-AcceptedVersion $runDir $entry $Step
+                $entry.history += @([ordered]@{ attempt = $entry.attempts; version = $accepted.version; result = 'passed'; plan_sha256 = $approved; at = $entry.completed_at })
+                Save-State $runDir $state
+                [ordered]@{ run_id = $RunId; step = $Step; result = 'passed'; attempt = $entry.attempts; version = $accepted.version; artifact = $entry.artifact; artifact_sha256 = $entry.artifact_sha256; plan_sha256 = $approved; workflow_status = $state.workflow_status } | ConvertTo-Json
+                return
+            }
+
             $isDownstream = $DownstreamSteps.Contains($Step)
 
             # Inputs that changed during the attempt invalidate it (not a failed attempt).
@@ -1191,17 +1610,8 @@ try {
             $entry = Get-StepEntry $state
             if ($Step -notin $RevisableSteps) { throw "Step '$Step' cannot be revised. Revisable steps: $($RevisableSteps -join ', ')." }
             Assert-Integrity $runDir $state
-            $open = @(Get-List $state['revisions'] | Where-Object { $_.status -eq 'open' })
-            if ($open.Count -gt 0) { throw "Revision '$($open[0].id)' is still open. Finish it before requesting another." }
-            if ($entry.status -ne 'passed') { throw "Step '$Step' is $($entry.status); only a passed artifact can be revised." }
-            $running = @($state.steps.Keys | Where-Object { $state.steps[$_].status -eq 'running' })
-            if ($running.Count -gt 0) { throw "Cannot revise while step(s) are running: $($running -join ', ')." }
-            $order = @($DownstreamSteps.Keys)
-            $after = @($order | Select-Object -Skip ([array]::IndexOf($order, $Step) + 1))
-            $unvalidated = @($after | Where-Object { $state.steps[$_].status -ne 'passed' })
-            if ($unvalidated.Count -gt 0) { throw "Step '$Step' can be revised only after it is validated; not passed yet: $($unvalidated -join ', ')." }
-            $used = @(Get-List $state['revisions'] | Where-Object { $_.step -eq $Step }).Count
-            if ($used -ge $MaxRevisions) { throw "Revision limit reached: step '$Step' has used all $MaxRevisions revisions for this run." }
+            $blockers = Get-RevisionBlockers $state $Step
+            if ($blockers.Count -gt 0) { throw $blockers[0] }
 
             if (-not $RequestFile -or -not (Test-Path -LiteralPath $RequestFile -PathType Leaf)) { throw "Revision request file not found: '$RequestFile'." }
             try { $request = Get-Content -LiteralPath $RequestFile -Raw | ConvertFrom-Json -AsHashtable }
@@ -1209,67 +1619,261 @@ try {
             $errors = Test-RevisionRequest $runDir $state $request
             if ($errors.Count -gt 0) { [ordered]@{ result = 'invalid'; errors = $errors } | ConvertTo-Json; exit 1 }
 
-            # Record the request (and the version it revises) before reopening anything.
-            Initialize-LegacyVersion $runDir $entry $Step
-            $base = @(Get-List $entry.accepted_versions)[-1]
-            if (-not $state['revisions']) { $state.revisions = @() }
-            $id = 'rev-{0:000}' -f (@(Get-List $state.revisions).Count + 1)
-            New-Item -ItemType Directory -Path (Join-Path $runDir 'revisions') -Force | Out-Null
-            $archived = "revisions/$id-request.json"
-            Copy-Item -LiteralPath $RequestFile -Destination (Join-Path $runDir $archived) -Force
-            $now = Get-Now
-            $record = [ordered]@{
-                id                = $id
-                step              = $Step
-                artifact          = $entry.artifact
-                owner             = $entry.agent
-                requested_by      = 'user'
-                source            = "$($request['source'])"
-                advisory_findings = @(Get-List $request['advisory_findings'])
-                reason            = "$($request['reason'])"
-                feedback          = "$($request['feedback'])"
-                user_confirmation = "$($request['user_confirmation'])"
-                request_file      = "runs/$RunId/$archived"
-                request_sha256    = Get-FileHash256 (Join-Path $runDir $archived)
-                requested_at      = $now
-                base_version      = $base.version
-                base_sha256       = $base.sha256
-                base_snapshot     = $base.snapshot
-                base_attempt      = $base.attempt
-                status            = 'open'
-                result_version    = $null
-                result_sha256     = $null
-                completed_at      = $null
-            }
-            $state.revisions = @(Get-List $state.revisions) + @($record)
-
-            # Reopen only the owner's step. Its gate history stays as it is; the new version
-            # gets its own attempt budget. Downstream steps are invalidated on save.
-            $entry.status = 'pending'
-            $entry.attempts = 0
-            $entry.retry_blocked = $false
-            $entry.artifact_sha256 = $null
-            $entry.active_revision = $id
-            $entry.revisions = @(Get-List $entry['revisions']) + @($id)
-            $before = [ordered]@{}
-            foreach ($n in $after) { $before[$n] = $state.steps[$n].status }
+            $opened = Open-Revision $runDir $state $Step $request $RequestFile
             Save-State $runDir $state
+            $after = $opened.after
             [ordered]@{
                 run_id          = $RunId
                 result          = 'opened'
-                revision        = $id
+                revision        = $opened.record.id
                 step            = $Step
                 owner           = $entry.agent
                 artifact        = $entry.artifact
-                base_version    = $base.version
-                base_snapshot   = $base.snapshot
-                request_file    = $record.request_file
-                feedback        = $record.feedback
+                base_version    = $opened.base.version
+                base_snapshot   = $opened.base.snapshot
+                request_file    = $opened.record.request_file
+                feedback        = $opened.record.feedback
                 attempts_left   = Get-AttemptsLeft $entry
-                revisions_left  = $MaxRevisions - $used - 1
-                invalidated     = @($after | Where-Object { $before[$_] -eq 'passed' -and $state.steps[$_].status -ne 'passed' })
+                revisions_left  = $MaxRevisions - $opened.used - 1
+                invalidated     = @($after | Where-Object { $opened.before[$_] -eq 'passed' -and $state.steps[$_].status -ne 'passed' })
                 workflow_status = $state.workflow_status
                 current_step    = $state.current_step
+            } | ConvertTo-Json -Depth 5
+        }
+
+        'decide' {
+            $runDir = Get-RunDir
+            $lock = Enter-StateLock $runDir
+            $state = Read-State $runDir
+            Assert-Integrity $runDir $state
+            if (-not $state.steps.Contains('approval')) { throw 'This run has no plan to decide on yet.' }
+            Update-Approval $runDir $state
+            $a = $state.steps.approval
+            $refuse = {
+                param([string[]]$Reasons, [bool]$Consumed)
+                [ordered]@{ run_id = $RunId; result = 'refused'; consumed = $Consumed; reasons = $Reasons; approval_status = $a.status; workflow_status = $state.workflow_status } | ConvertTo-Json -Depth 5
+                exit 1
+            }
+
+            $interrupted = @(Get-List $a['ledger_quarantines'] | Where-Object { $_.status -eq 'started' })
+            if ($interrupted.Count -gt 0) { & $refuse @("Ledger quarantine $($interrupted[0].id) was interrupted. Run 'state.ps1 quarantine-ledger' again to finish it.") $false }
+
+            # Evidence comes only from the ledger. approval.json and state.json are outputs of
+            # this command, never inputs to it.
+            $ledger = Read-Ledger $runDir
+            if (-not $ledger.exists) {
+                & $refuse @("No decision evidence: runs/$RunId/$LedgerPath does not exist. Only a decision the user submits, captured as ledger evidence, can approve, reject, or request changes; approval.json or state.json edits are never evidence.") $false
+            }
+            $done = [int]$a.consumed_through
+            if ($ledger.lines.Count -le $done) { & $refuse @("No unconsumed decision evidence: all $done ledger entries were already consumed.") $false }
+            # A malformed or broken chain is never consumed: nothing after the break can be trusted.
+            $structural = Get-LedgerProblems $ledger
+            if ($structural.Count -gt 0) { & $refuse (@('The decision ledger is invalid; nothing was consumed.') + @($structural)) $false }
+
+            $seq = $done + 1
+            $line = $ledger.lines[$seq - 1]
+            $lineSha = $ledger.shas[$seq - 1]
+            $entry = $line | ConvertFrom-Json -AsHashtable
+            $decision = "$($entry['decision'])"
+            $planSha = Get-InputHash (Join-Path $runDir 'plan.md')
+            $reasons = @()
+            $earlier = @($ledger.lines | Select-Object -First $done | ForEach-Object { $_ | ConvertFrom-Json -AsHashtable })
+            if (@($earlier | Where-Object { "$($_['prompt_id'])" -eq "$($entry['prompt_id'])" }).Count -gt 0) { $reasons += "Replayed evidence: prompt '$($entry['prompt_id'])' was already used by an earlier decision." }
+            if ($a.status -eq 'rejected') { $reasons += 'The plan was rejected; rejection is final for this run.' }
+            elseif ($a.status -eq 'approved' -and $decision -eq 'approve') { $reasons += 'The current plan is already approved.' }
+            $blockers = Get-ApprovalBlockers $state
+            foreach ($b in $blockers) { $reasons += "The plan cannot be decided on now: $b." }
+            if ($entry['plan_sha256'] -ne $planSha) { $reasons += "Stale evidence: it is for plan $("$($entry['plan_sha256'])".Substring(0, 12)), but the current plan is $(if ($planSha) { $planSha.Substring(0, 12) } else { 'missing' })." }
+            elseif ($state.steps.plan.artifact_sha256 -ne $planSha) { $reasons += 'The current plan.md is not the accepted plan.' }
+            if ("$($entry['plan_version'])" -ne "$($state.steps.plan['version'])") { $reasons += "Stale evidence: it is for plan version $($entry['plan_version']), but the current version is $($state.steps.plan['version'])." }
+            $request = $null
+            if ($decision -eq 'request_changes' -and $reasons.Count -eq 0) {
+                $Step = 'plan'
+                $revBlockers = Get-RevisionBlockers $state 'plan'
+                foreach ($b in $revBlockers) { $reasons += $b }
+                $request = [ordered]@{
+                    step              = 'plan'
+                    requested_by      = 'user'
+                    source            = 'user'
+                    advisory_findings = @()
+                    reason            = 'The user requested changes when deciding on the validated plan.'
+                    feedback          = "$($entry['feedback'])"
+                    user_confirmation = "Submitted by the user; captured as ledger entry $($entry['decision_id']) (prompt sha256 $($entry['prompt_sha256']))."
+                    evidence          = [ordered]@{ decision_id = $entry['decision_id']; ledger_seq = $seq; ledger_entry_sha256 = $lineSha; prompt_sha256 = $entry['prompt_sha256'] }
+                }
+                $requestErrors = Test-RevisionRequest $runDir $state $request
+                foreach ($e in $requestErrors) { $reasons += $e }
+            }
+
+            # The entry is consumed either way, so it can never be applied later.
+            $now = Get-Now
+            $record = [ordered]@{
+                seq = $seq; decision_id = $entry['decision_id']; decision = $decision; entry_sha256 = $lineSha
+                plan_sha256 = $entry['plan_sha256']; plan_version = $entry['plan_version']; prompt_sha256 = $entry['prompt_sha256']
+                outcome = $(if ($reasons.Count) { 'refused' } else { 'applied' }); reasons = $reasons; at = $now
+            }
+            $a.consumed_through = $seq
+            $a.consumed_sha256 = Get-LedgerPrefixSha $ledger $seq
+            $a.decisions = @(Get-List $a['decisions']) + @($record)
+            if ($reasons.Count -gt 0) {
+                $a.history += @([ordered]@{ result = 'decision_refused'; decision_id = $record.decision_id; decision = $decision; reasons = $reasons; at = $now })
+                Save-State $runDir $state
+                & $refuse $reasons $true
+            }
+
+            $result = [ordered]@{ run_id = $RunId; result = $null; decision_id = $record.decision_id; plan_version = $entry['plan_version']; plan_sha256 = $planSha }
+            if ($decision -eq 'request_changes') {
+                $a.history += @([ordered]@{ result = 'changes_requested'; decision_id = $record.decision_id; plan_sha256 = $planSha; feedback = $request.feedback; at = $now })
+                $opened = Open-Revision $runDir $state 'plan' $request $null
+                Save-State $runDir $state
+                $result.result = 'changes_requested'
+                $result.revision = $opened.record.id
+                $result.base_snapshot = $opened.base.snapshot
+                $result.feedback = $request.feedback
+                $result.revisions_left = $MaxRevisions - $opened.used - 1
+            }
+            else {
+                # A new decision replaces whatever was recorded before (e.g. reject after approve).
+                if ($a.status -eq 'approved') { Reset-Approval $runDir $a 'superseded' @("superseded by $($record.decision_id) ($decision)") }
+                $status = if ($decision -eq 'approve') { 'approved' } else { 'rejected' }
+                $pvSha = $state.steps.'plan-validation'.artifact_sha256
+                $doc = [ordered]@{
+                    schema                 = 1
+                    run_id                 = $RunId
+                    decision               = $status
+                    decision_id            = $record.decision_id
+                    ledger_seq             = $seq
+                    ledger_entry_sha256    = $lineSha
+                    plan_sha256            = $planSha
+                    plan_version           = $state.steps.plan.version
+                    plan_validation_sha256 = $pvSha
+                    decided_at             = $now
+                    recorded_by            = 'state.ps1 decide'
+                }
+                $path = Get-ArtifactPath $runDir $a
+                Write-JsonAtomic $path $doc
+                $a.status = $status
+                $a.decision = $status
+                $a.decision_id = $record.decision_id
+                $a.ledger_seq = $seq
+                $a.ledger_entry_sha256 = $lineSha
+                $a.plan_sha256 = $planSha
+                $a.plan_version = $state.steps.plan.version
+                $a.plan_validation_sha256 = $pvSha
+                $a.artifact_sha256 = Get-FileHash256 $path
+                $a.completed_at = $now
+                $a.attempts = [int]$a.attempts + 1
+                $accepted = Add-AcceptedVersion $runDir $a 'approval'
+                $a.history += @([ordered]@{ result = $status; decision_id = $record.decision_id; version = $accepted.version; plan_sha256 = $planSha; at = $now })
+                Save-State $runDir $state
+                $result.result = $status
+            }
+            $result.remaining_unconsumed = $ledger.lines.Count - $seq
+            $result.approval_status = $state.steps.approval.status
+            $result.workflow_status = $state.workflow_status
+            $result.next_step = $state.next_step
+            $result | ConvertTo-Json -Depth 5
+        }
+
+        'quarantine-ledger' {
+            # Removes evidence only: it never writes a ledger entry, consumes one, or changes the
+            # approval status. Two files change (the quarantine file, then the ledger), so the
+            # intent and every expected hash are recorded first; running the command again
+            # resumes an interrupted quarantine by comparing hashes on disk.
+            $runDir = Get-RunDir
+            $lock = Enter-StateLock $runDir
+            $state = Read-State $runDir
+            if (-not $state.steps.Contains('approval')) { throw 'This run has no decision ledger.' }
+            $a = $state.steps.approval
+            # Consumed entries are history; a damaged history is never quarantined or rewritten.
+            $violations = Get-IntegrityViolations $runDir $state
+            $damaged = @($violations | Where-Object { $_.step -eq 'approval-ledger' })
+            if ($damaged.Count -gt 0) {
+                Save-State $runDir $state
+                throw "Integrity violation: $(Format-Violation $damaged[0])"
+            }
+            $ledgerFile = Join-Path $runDir $LedgerPath
+            $ledger = Read-Ledger $runDir
+            $current = Get-InputHash $ledgerFile
+            $record = @(Get-List $a['ledger_quarantines'] | Where-Object { $_.status -eq 'started' }) | Select-Object -First 1
+
+            if (-not $record) {
+                $first = if ($ledger.exists) { Get-FirstBadLedgerLine $ledger } else { 0 }
+                if ($first -eq 0) {
+                    [ordered]@{ run_id = $RunId; result = 'refused'; reasons = @($(if ($ledger.exists) { 'The decision ledger is structurally valid; there is nothing to quarantine.' } else { 'There is no decision ledger.' })) } | ConvertTo-Json
+                    exit 1
+                }
+                if ($first -le [int]$a.consumed_through) { throw "Line $first is malformed but was already consumed; consumed history is never quarantined." }
+                $kept = @($ledger.lines | Select-Object -First ($first - 1))
+                $moved = @($ledger.lines | Select-Object -Skip ($first - 1))
+                $problems = Get-LedgerProblems $ledger
+                $id = 'q-{0:000}' -f (@(Get-List $a['ledger_quarantines']).Count + 1)
+                $record = [ordered]@{
+                    id                 = $id
+                    status             = 'started'
+                    reason             = $(if ($Reason) { $Reason } else { 'malformed unconsumed decision evidence' })
+                    problems           = @($problems)
+                    first_line         = $first
+                    last_line          = $ledger.lines.Count
+                    line_count         = $moved.Count
+                    consumed_through   = [int]$a.consumed_through
+                    original_sha256    = $current
+                    kept_sha256        = Get-StringHash256 (Get-LedgerText $kept)
+                    quarantined_sha256 = Get-StringHash256 (Get-LedgerText $moved)
+                    quarantine_file    = "runs/$RunId/approval/quarantine/$id.jsonl"
+                    started_at         = Get-Now
+                    completed_at       = $null
+                }
+                $a.ledger_quarantines = @(Get-List $a['ledger_quarantines']) + @($record)
+                Save-State $runDir $state
+            }
+            elseif ($current -eq $record.original_sha256) {
+                $kept = @($ledger.lines | Select-Object -First ($record.first_line - 1))
+                $moved = @($ledger.lines | Select-Object -Skip ($record.first_line - 1))
+            }
+            elseif ($current -ne $record.kept_sha256) {
+                throw "Quarantine $($record.id) cannot be resumed: the ledger is neither the original ($($record.original_sha256.Substring(0, 12))) nor the expected result ($($record.kept_sha256.Substring(0, 12)))."
+            }
+
+            if ($current -eq $record.original_sha256 -and
+                ((Get-StringHash256 (Get-LedgerText $kept)) -ne $record.kept_sha256 -or (Get-StringHash256 (Get-LedgerText $moved)) -ne $record.quarantined_sha256)) {
+                throw "Quarantine $($record.id): the split of the ledger does not match the recorded hashes; nothing was changed."
+            }
+            # 1. The quarantine file. An existing file with other content is never overwritten.
+            $qPath = Join-Path $runDir $record.quarantine_file.Substring("runs/$RunId/".Length)
+            $qSha = Get-InputHash $qPath
+            if ($qSha -and $qSha -ne $record.quarantined_sha256) { throw "Quarantine file $($record.quarantine_file) exists with other content; it is never overwritten." }
+            if (-not $qSha) {
+                if ($current -ne $record.original_sha256) { throw "Quarantine $($record.id) cannot be resumed: the ledger was already rewritten but $($record.quarantine_file) is missing." }
+                New-Item -ItemType Directory -Path (Split-Path $qPath) -Force | Out-Null
+                Write-TextAtomic $qPath (Get-LedgerText $moved)
+                if ((Get-InputHash $qPath) -ne $record.quarantined_sha256) { throw "Quarantine file $($record.quarantine_file) does not have the expected content." }
+            }
+            # 2. The ledger keeps the lines before the first malformed one.
+            if ($current -eq $record.original_sha256) {
+                Write-TextAtomic $ledgerFile (Get-LedgerText $kept)
+                if ((Get-InputHash $ledgerFile) -ne $record.kept_sha256) { throw 'The rewritten ledger does not have the expected content.' }
+            }
+            # 3. Done.
+            $record.status = 'completed'
+            $record.completed_at = Get-Now
+            $a.history += @([ordered]@{
+                    result = 'ledger_quarantined'; quarantine = $record.id; reason = $record.reason; first_line = $record.first_line; line_count = $record.line_count
+                    original_sha256 = $record.original_sha256; kept_sha256 = $record.kept_sha256; quarantined_sha256 = $record.quarantined_sha256; at = $record.completed_at
+                })
+            Save-State $runDir $state
+            [ordered]@{
+                run_id           = $RunId
+                result           = 'quarantined'
+                quarantine       = $record.id
+                quarantine_file  = $record.quarantine_file
+                first_line       = $record.first_line
+                line_count       = $record.line_count
+                kept_lines       = $record.first_line - 1
+                consumed_through = [int]$a.consumed_through
+                problems         = $record.problems
+                approval_status  = $a.status
+                workflow_status  = $state.workflow_status
             } | ConvertTo-Json -Depth 5
         }
 
@@ -1293,6 +1897,7 @@ try {
             $runDir = Get-RunDir
             $lock = Enter-StateLock $runDir
             $state = Read-State $runDir
+            if ($Step -eq 'approval-ledger') { throw 'Consumed ledger entries cannot be restored or discarded by a command: put the consumed lines back exactly as they were, by hand.' }
             $entry = Get-StepEntry $state
             if (-not $Resolution) { throw 'Missing -Resolution (restore or discard).' }
             $v = @(Update-Integrity $runDir $state | Where-Object { $_.step -eq $Step })

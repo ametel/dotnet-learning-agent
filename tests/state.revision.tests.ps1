@@ -105,7 +105,7 @@ Test-Case 'revision of a passed plan: only the planner reopens, research is pres
 
     $v = Complete-PlanValidation $id
     Assert-Equal 'completed' $v.revisions[0].status
-    Assert-Equal 'paused' $v.workflow_status
+    Assert-Equal 'awaiting_approval' $v.workflow_status
     $s = Read-RunState $id
     $rev = $s.revisions[0]
     Assert-Equal 'completed' $rev.status

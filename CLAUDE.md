@@ -3,7 +3,7 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 3B. Implemented in `/prepare-interview`:
+> **Status:** Phase 4A. Implemented in `/prepare-interview`:
 >
 > - requirements gathering,
 > - dynamic selection and parallel execution of research agents,
@@ -29,8 +29,16 @@ when implementing or running any part of the workflow.
 > validation on attempt 1, kept the confirmed 150-minute budget, and left 3 non-blocking
 > advisory findings. **Revision retries, failed revisions, and integrity violations
 > (`resolve`) are still tested only with fixture artifacts.**
-> Not implemented yet: human approval, HTML, resume (§7), hooks, and revisions of anything
-> other than the plan. Known gaps are listed in §6.3.
+>
+> Phase 4A adds the **deterministic approval state machine** in `state.ps1` (§8): the
+> `approval` and `render` steps, a hash-chained decision ledger, `decide`, approval
+> invalidation, and `quarantine-ledger`. It is tested with fixture evidence only.
+> **Real human approval is not implemented yet:** nothing captures the user's decision
+> (the UserPromptSubmit hook is Phase 4B), so the coordinator never runs `decide`, and
+> Phase 4A is not an authorization mechanism (§8.4).
+> Not implemented yet: hook-based decision capture, hooks in general, HTML rendering,
+> resume (§7), and revisions of anything other than the plan. Known gaps are listed in
+> §6.3 and §8.4.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -187,8 +195,10 @@ The coordinator writes the selection and a one-line reason for each agent into
 4. Global coverage gate (`coverage` step, quality-validator) → `validation/coverage.json`
 5. Learning-plan synthesis (`plan` step, study-planner, needs all research) → `plan.md`
 6. Plan validation (`plan-validation` step, quality-validator) → `validation/plan.json`
-7. Human approval (not implemented yet)
-8. HTML generation (not implemented yet)
+7. Human approval (`approval` step; state machine implemented in Phase 4A, decision capture
+   not yet, §8) → `approval.json`
+8. HTML generation (`render` step; its approval check and gate exist, the renderer does not)
+   → `guide.html`
 
 **Parallel:** independent research subagents (one per topic area) may run at the same
 time. They must write to distinct output paths and must not read each other's output.
@@ -240,8 +250,11 @@ runs/<run-id>/
   versions/                  # owner: coordinator (state.ps1 snapshots every accepted artifact version)
   revision-request.json      # owner: coordinator (the latest user-confirmed revision request)
   revisions/                 # owner: coordinator (state.ps1 archives each revision request)
-  approval.json              # owner: coordinator (records the human decision)
-  guide.html                 # owner: HTML renderer, written only after approval
+  approval/decisions.jsonl   # owner: UserPromptSubmit hook (Phase 4B; no writer exists yet). Append-only decision evidence
+  approval.json              # owner: state.ps1 decide (the applied decision; never evidence by itself)
+  approval/history/          # owner: state.ps1 (voided or superseded approval.json files)
+  approval/quarantine/       # owner: state.ps1 quarantine-ledger (malformed, unconsumed evidence)
+  guide.html                 # owner: HTML renderer (not built), written only after approval
 ```
 
 ### 5.1 Artifact formats
@@ -261,6 +274,11 @@ Artifacts form a dependency chain:
 
 ```
 confirmed-input.md → requirements.md → research/<area>.md → validation/coverage.json → plan.md → validation/plan.json → approval.json → guide.html
+
+An approval is void as soon as the plan or its validation report is no longer the approved
+one, either step is no longer passed, or a revision opens (§8.2). A rendered guide is void
+when its approval is. A manual edit is an integrity violation instead (§6.4): it blocks the
+run but does not void anything, and `restore` makes the approval valid again.
 ```
 
 **Implemented (Phase 3A):** `state.ps1` records the input hashes of every downstream step
@@ -471,22 +489,84 @@ punctuation, is trimmed.
 
 ## 8. Human approval before final HTML
 
-- After the plan passes validation, the coordinator shows the user a concise summary of
-  the plan and asks for explicit approval: approve, request changes, or abort.
-- The decision and any feedback go to `approval.json`.
-- "Request changes" sends a targeted revision to the plan owner. This counts toward that
-  artifact's retry budget only if it is a gate failure; user-requested revisions are
-  tracked separately (§6.2). The revision mechanism exists (Phase 3B); the approval prompt
-  that would trigger it does not yet.
-- **Approval is tied to the exact plan content.** `approval.json` records the SHA-256 hash
-  of the `plan.md` the user approved (plus a plan version number for readability).
-- Before rendering, the coordinator recomputes the hash of the current `plan.md`. If it
-  differs from the approved hash, the approval is void: the plan must be re-validated and
-  re-approved. Any edit to the plan after approval, however small, invalidates the approval
-  (see §5.2).
-- **No HTML is generated without an approval recorded on disk that matches the current plan
-  hash.** Later phases may enforce this with a hook. Until then it is a rule the coordinator
-  must follow.
+Target flow (Phase 4B onward): after the plan passes validation, the coordinator shows the
+user a summary and the exact phrases to type to approve, request changes, or reject. A
+UserPromptSubmit hook captures the decision as ledger evidence, and `state.ps1 decide`
+applies it. **Phase 4A implements only the deterministic part (§8.1–§8.3). The capture does
+not exist yet, so in real runs the coordinator stops at `awaiting_approval`.**
+
+### 8.1 Approval state machine (implemented, Phase 4A)
+
+| From | Event | To |
+|---|---|---|
+| `pending` | plan and plan-validation passed, no open revision | `awaiting_decision` (workflow `awaiting_approval`) |
+| `awaiting_decision` | valid `approve` evidence for the current plan | `approved` (workflow `approved`, next: render) |
+| `awaiting_decision` or `approved` | valid `request_changes` evidence with feedback | a plan revision opens (§6.2); approval returns to `pending` |
+| `awaiting_decision` or `approved` | valid `reject` evidence | `rejected`: **final**. No later decision, revision, or render in this run |
+| `approved` | plan or validation report changed, a step no longer passed, or a revision opened | voided: `approval.json` moves to `approval/history/`, `render` is reset |
+| `approved` | `render` passes | workflow `completed` |
+
+`start -Step approval` is always refused: only the user decides. Runs created before Phase
+4A get both steps on first read; nothing else in them changes.
+
+### 8.2 Decision evidence and `decide`
+
+- **Ledger** `approval/decisions.jsonl`: append-only, one JSON object per line, chained by
+  hash. Fields: `schema` (1), `seq` (contiguous from 1), `decision_id` (`dec-<seq:000>`),
+  `prev_sha256` (SHA-256 of the previous line, 64 zeros for the first), `run_id`, `decision`
+  (`approve` | `reject` | `request_changes`), `plan_sha256`, `plan_version`, `feedback`
+  (`request_changes` only, required), `prompt_sha256`, `prompt_id`, `session_id`,
+  `recorded_at`, `source` (`user-prompt-submit`).
+- **`state.ps1` has no command that writes ledger entries.** The tests use a helper named
+  `Add-TestOnlyLedgerEntry`, which exists only in `tests/`.
+- `decide` applies the **oldest unconsumed** entry:
+  - a malformed entry or broken chain anywhere in the ledger: refused, **not** consumed;
+  - stale evidence (another plan hash or version), a plan that is not decidable now, a
+    replayed `prompt_id`, or any decision after a rejection: refused **and** consumed, so it
+    can never be applied later;
+  - otherwise applied. `approve`/`reject` write `approval.json` (`decision`, `decision_id`,
+    `ledger_seq`, `ledger_entry_sha256`, `plan_sha256`, `plan_version`,
+    `plan_validation_sha256`), snapshotted in `versions/approval-v<N>.json`.
+    `request_changes` opens a revision with the user's feedback and the evidence reference.
+- **`approval.json` and `state.json` are never evidence.** Before rendering, `state.ps1`
+  recomputes everything from disk: `approval.json`, the consumed ledger entry and the chain
+  up to it, the current plan hash, and the validation report must all agree.
+- Consumed entries are history. Changing, removing, or reordering them is an integrity
+  violation (`approval-ledger`) that can only be repaired by hand. `approval.json` is held to
+  its hash like a passed artifact (`resolve -Step approval` works).
+- **`quarantine-ledger`** recovers from a malformed **unconsumed** suffix without editing the
+  ledger by hand. It refuses a structurally valid ledger and a damaged consumed history. It
+  moves everything from the first malformed line to the end, verbatim, to
+  `approval/quarantine/q-NNN.jsonl`, and records the reason, line range, problems, and the
+  original, kept, and quarantined hashes (`steps.approval.ledger_quarantines` and history).
+  The intent is saved before any file changes; running it again resumes an interrupted
+  quarantine by comparing hashes. It never creates, consumes, or applies a decision.
+
+### 8.3 Rendering
+
+`start -Step render` is refused unless the approval check above passes. `complete -Step
+render` checks it again and requires `guide.html` to contain
+`<meta name="plan-sha256" content="<approved hash>">`. The renderer itself is not built.
+**No HTML is generated without an approval that matches the current plan hash.**
+
+### 8.4 Limitations (Phase 4A)
+
+- **Not an authorization mechanism yet.** Anything that can write files can append a
+  well-formed ledger entry; `prompt_sha256` cannot be checked against anything. Real
+  protection needs the Phase 4B hook as the only writer, plus hook-enforced write and shell
+  policies. Even then, `!` commands and nested `claude` sessions bypass hooks (Phase 4.0
+  spike), and transcript origin fields are not proof of a human.
+- **Temporary deny rules** in `.claude/settings.json` block the direct
+  `pwsh -NoProfile -File scripts/state.ps1 decide` call and `Write`/`Edit` of
+  `runs/*/approval.json` and `runs/*/approval/**`. They hold in every permission mode,
+  including bypassPermissions, and override a slash command's `allowed-tools` (tested).
+  **They are not a security boundary:** `pwsh -Command "& ./scripts/state.ps1 decide"` was
+  not blocked, and other shell indirection can write the files.
+- `revise` (Step 16) does not require ledger evidence yet; that switch comes with the hook.
+- A malformed unconsumed entry blocks `decide` until `quarantine-ledger` is run. A user
+  decision that arrived after the malformed line is quarantined with it and must be
+  submitted again.
+- A voided render resets the step but leaves `guide.html` on disk until a renderer exists.
 
 ---
 
@@ -542,6 +622,10 @@ asked.
 | `WebFetch(domain:...)` for `learn.microsoft.com`, `devblogs.microsoft.com`, `github.com`, `martinfowler.com`, `microservices.io` | Curated official and expert sources |
 | `Bash(pwsh -NoProfile -File scripts/state.ps1:*)` | The coordinator's state helper |
 
+Denied (temporary, until the Phase 4B hook exists; not a security boundary, §8.4):
+`Bash(pwsh -NoProfile -File scripts/state.ps1 decide:*)`, `Edit(/runs/*/approval.json)`, and
+`Edit(/runs/*/approval/**)`. An `Edit` rule also covers the `Write` tool.
+
 **Limitation:** a background research agent cannot fetch pages on any other domain. Those
 `WebFetch` calls are denied. The agent must record the denial under *Gaps and Limitations*
 and must not cite what it could not read. To widen access, add specific
@@ -572,11 +656,11 @@ Inside a session, `/mcp` shows the server and its tools.
 
 ```
 .claude/agents/     subagent definitions              (requirements, 3 research, validator, planner)
-.claude/commands/   /prepare-interview command        (Phase 3B scope)
+.claude/commands/   /prepare-interview command        (stops at awaiting_approval)
 .claude/skills/     reusable skills                   (planned)
 .claude/hooks/      guardrail hooks                   (planned)
 scripts/            deterministic helpers             (state.ps1)
-tests/              state.ps1 test suite              (run-tests.ps1)
+tests/              state.ps1 test suite              (run-tests.ps1; approval: state.approval.tests.ps1)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
 templates/          final HTML templates              (planned)

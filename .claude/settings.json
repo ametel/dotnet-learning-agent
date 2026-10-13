@@ -11,6 +11,11 @@
       "WebFetch(domain:martinfowler.com)",
       "WebFetch(domain:microservices.io)",
       "Bash(pwsh -NoProfile -File scripts/state.ps1:*)"
+    ],
+    "deny": [
+      "Bash(pwsh -NoProfile -File scripts/state.ps1 decide:*)",
+      "Edit(/runs/*/approval.json)",
+      "Edit(/runs/*/approval/**)"
     ]
   }
 }

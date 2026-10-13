@@ -173,7 +173,7 @@ Test-Case 'valid selection creates one pending step per selected agent, and only
     $r = Assert-Ok (Invoke-State @('select', '-RunId', $id, '-SelectionFile', $path))
     Assert-Equal 'data-researcher' (@($r.skipped) -join ',')
     $s = Read-RunState $id
-    Assert-Equal 'requirements,research-dotnet,research-architecture,coverage,plan,plan-validation' (@($s.steps.Keys) -join ',')
+    Assert-Equal 'requirements,research-dotnet,research-architecture,coverage,plan,plan-validation,approval,render' (@($s.steps.Keys) -join ',')
     Assert-Equal 'async internals,concurrency,system design' (@($s.research.coverage | ForEach-Object { $_.mandatory_topic }) -join ',')
     Assert-Equal 'Async internals in .NET|Concurrency in .NET' (@($s.steps.'research-dotnet'.topics) -join '|')
     Assert-Equal 'pending' $s.steps.'research-dotnet'.status

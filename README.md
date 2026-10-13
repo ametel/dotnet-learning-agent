@@ -10,7 +10,7 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress (Phase 3B).** `/prepare-interview` runs these steps, then
+🚧 **Implementation in progress (Phase 4A).** `/prepare-interview` runs these steps, then
 stops:
 
 1. It gathers and confirms your requirements. The `requirements-formalizer` writes
@@ -26,8 +26,20 @@ stops:
 6. The validator runs the **plan quality gate**.
 
 A failed gate re-runs only the agent that owns the problem (at most 3 attempts per
-artifact), and dependent steps are invalidated and regenerated. Human approval and HTML
-generation are not implemented yet.
+artifact), and dependent steps are invalidated and regenerated. The run then waits for your
+decision (`workflow_status: awaiting_approval`), but **real approval is not implemented
+yet**, and neither is HTML generation (see below).
+
+**Approval (Phase 4A: the state machine only, CLAUDE.md §8):** `state.ps1` now has
+`approval` and `render` steps after plan validation. A decision (approve, request changes,
+or reject) is applied by `state.ps1 decide` only from evidence in an append-only,
+hash-chained ledger (`approval/decisions.jsonl`) that is bound to the SHA-256 of the current
+validated plan. Stale, replayed, or malformed evidence is refused; `approval.json` or an
+edited `state.json` is never accepted as proof. Any later change to the plan voids the
+approval, and rejection is final. `quarantine-ledger` moves malformed, unconsumed evidence
+aside without hand-editing the ledger. **Nothing writes the ledger yet**: the
+UserPromptSubmit hook that will capture what you type is Phase 4B. Until then the coordinator
+never runs `decide`, and Phase 4A is tested with fixture evidence only.
 
 After the plan passes validation, you can ask for changes to it, in the same session or
 later with `/prepare-interview revise <run-id>`. The coordinator confirms the change with
@@ -160,12 +172,22 @@ local (`runs/` is git-ignored), so it is not committed.
   invalidated automatically. Research steps are not: a changed `requirements.md` or
   `confirmed-input.md` blocks research instead, and re-running requirements is not
   supported. Resume is not implemented (CLAUDE.md §7).
-- **No approval or HTML yet.** The run stops after plan validation.
+- **No real approval or HTML yet.** The run stops at `awaiting_approval`. The approval
+  state machine exists, but nothing captures your decision (Phase 4B), so it is **not an
+  authorization mechanism**: anything that can write files could append well-formed ledger
+  evidence. Temporary deny rules in `.claude/settings.json` block the direct
+  `state.ps1 decide` call and `Write`/`Edit` of approval files in every permission mode, but
+  they are **not a security boundary**: in testing, `pwsh -Command "& ./scripts/state.ps1
+  decide"` got through.
+- **Ledger recovery is partly manual.** A malformed unconsumed entry blocks `decide` until
+  `state.ps1 quarantine-ledger` moves it (and anything after it) aside. Damaged consumed
+  entries can only be restored by hand.
 - **The plan gate parses only its own format.** It reads the schedule table, front matter,
   and URLs in the exact format the `study-planner` prompt defines. A differently formatted
   but valid plan fails the gate and is retried.
-- No hooks enforce artifact ownership or the approval-before-HTML rule. The coordinator
-  prompt and the agents' instructions are the only enforcement.
+- No hooks enforce artifact ownership yet. The coordinator prompt, the agents'
+  instructions, and the deny rules above are the only enforcement. `state.ps1` itself
+  refuses to start or pass the `render` step without a valid approval.
 - State locking is tested only on Windows (NTFS). On Linux and macOS, .NET emulates
   `FileShare.None` with advisory locks, and `DeleteOnClose` unlinks the lock file. That
   combination has a known race that the tests do not cover.
@@ -181,7 +203,8 @@ not used.
 
 ```
 pwsh -NoProfile -File tests/run-tests.ps1                    # all tests (5 iterations per concurrency scenario)
-pwsh -NoProfile -File tests/run-tests.ps1 -SkipConcurrency   # sequential, Phase 3A and 3B tests only
+pwsh -NoProfile -File tests/run-tests.ps1 -SkipConcurrency   # sequential tests only
+pwsh -NoProfile -File tests/run-tests.ps1 -SkipConcurrency -Filter quarantine   # tests whose name matches a regex
 pwsh -NoProfile -File tests/run-tests.ps1 -Iterations 25     # heavier concurrency stress
 pwsh -NoProfile -File tests/run-tests.ps1 -SensitivityCheck  # also prove the tests catch lost updates
 pwsh -NoProfile -File tests/run-tests.ps1 -KeepTestRoot      # keep the temp directory for inspection
@@ -191,6 +214,26 @@ The exit code is 0 when every test passes. Every run works in a fresh directory 
 system temp folder, passed to `state.ps1` with `-RunsRoot`, and deletes it at the end.
 Nothing is written to `runs/`.
 
+- **Phase 4A tests (14, `tests/state.approval.tests.ps1`):** decision evidence is written
+  by the test-only helper `Add-TestOnlyLedgerEntry` (production has no ledger writer). These
+  cover:
+  - no evidence, a forged `approval.json`, and a `state.json` edited to "approved",
+  - a valid approval, then render refused or passed by the approved hash,
+  - 17 forged or malformed ledgers (source, run, chain, sequence, IDs, hashes, schema,
+    feedback rules, non-JSON lines, a valid entry followed by a broken one), never consumed,
+  - stale evidence (another plan hash, another version, a plan not yet validated) and
+    replayed evidence, consumed and refused,
+  - rejection (final), request changes (a revision with your feedback, then a new approval),
+  - voiding by a revision or discard, versus a manual edit (blocked, restore revalidates),
+  - tampering with `approval.json` or consumed ledger entries,
+  - upgrading an older run: only the two steps are added; every existing step, hash, attempt
+    count, history entry, and file is unchanged,
+  - `quarantine-ledger`: only the malformed suffix moves, valid and consumed entries stay
+    usable, a valid ledger is refused, repeats are idempotent, an interrupted quarantine
+    resumes, and a damaged consumed history is refused.
+
+  A mutation check (not part of the suite) removed one protection at a time from a copy of
+  `state.ps1`; the tests detected all 9 mutants.
 - **Phase 3B tests (10, `tests/state.revision.tests.ps1`):** agent outputs are fixtures.
   These cover:
   - revising a passed plan: only the planner reopens, plan validation is invalidated and
@@ -249,12 +292,14 @@ Nothing is written to `runs/`.
   After every operation the tests check that `state.json` parses. After every batch they
   check that no `state.lock` or temp file is left behind.
 
-Last full run (2026-10-12, Phase 3B, Windows 11, PowerShell 7.6, `-Iterations 5`):
+Last full run (2026-10-13, Phase 4A, Windows 11, PowerShell 7.6, `-Iterations 5`):
 
-- **62 of 62 tests passed** in about 11.4 minutes.
+- **76 of 76 tests passed** in about 17 minutes.
 - **Overlap:** there were 60 concurrent batches. In all 60, every operation overlapped
-  every other one, and start times were spread by 2 ms on average (15 ms at most).
-- **Readers:** unlocked readers parsed `state.json` 7,795 times and saw 0 invalid reads.
+  every other one, and start times were spread by 2 ms on average (24 ms at most).
+- **Readers:** unlocked readers parsed `state.json` 8,660 times and saw 0 invalid reads
+  (5 reads hit a transient file-sharing error while opening the file; those are counted
+  separately and the reader just reads again on its next loop).
 
 The concurrency tests exercise the research steps. The Phase 3A and 3B steps run one at a
 time by design, so they are tested sequentially.
@@ -304,7 +349,7 @@ See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 | Path               | Purpose                                     |
 |--------------------|---------------------------------------------|
 | `.claude/agents/`  | Subagent definitions (requirements, 3 research, validator, planner) |
-| `.claude/commands/`| `/prepare-interview` command (Phase 3B scope) |
+| `.claude/commands/`| `/prepare-interview` command (stops at `awaiting_approval`) |
 | `.claude/skills/`  | Reusable skills (planned)                   |
 | `.claude/hooks/`   | Guardrail hooks (planned)                   |
 | `scripts/`         | Deterministic helpers (`state.ps1`)          |
