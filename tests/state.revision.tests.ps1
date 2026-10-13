@@ -46,7 +46,25 @@ function Write-RevisionRequest([string]$RunId, [hashtable]$Override = @{}) {
     return $path
 }
 
+# A revision also needs the user's REVISE PLAN command as ledger evidence (Phase 4B). Unless
+# the test supplies its own 'evidence', the oldest unconsumed ledger entry is referenced, and a
+# request_changes entry carrying the request's feedback is added first if there is none.
 function Invoke-Revise([string]$RunId, [hashtable]$Override = @{}) {
+    if (-not $Override.ContainsKey('evidence')) {
+        $consumed = [int](Read-RunState $RunId).steps.approval.consumed_through
+        $lines = @(Get-LedgerLines $RunId)
+        if ($lines.Count -le $consumed) {
+            $feedback = if ($Override.ContainsKey('feedback') -and "$($Override['feedback'])".Trim()) { "$($Override['feedback'])" }
+                        elseif ($Override.ContainsKey('feedback')) { 'Change requested.' } else { 'Replace one concurrency theory session with a hands-on exercise.' }
+            # A run without a plan yet (revise must refuse it) still gets well-formed evidence.
+            $noPlan = -not (Test-Path -LiteralPath (Join-Path (Get-RunDir $RunId) 'plan.md'))
+            $planArgs = if ($noPlan) { @{ PlanSha = ('0' * 64); PlanVersion = 1 } } else { @{} }
+            Add-TestOnlyLedgerEntry $RunId 'request_changes' -Feedback $feedback @planArgs | Out-Null
+            $lines = @(Get-LedgerLines $RunId)
+        }
+        $Override = $Override.Clone()
+        $Override['evidence'] = @{ decision_id = ($lines[$consumed] | ConvertFrom-Json).decision_id }
+    }
     Invoke-State @('revise', '-RunId', $RunId, '-Step', 'plan', '-RequestFile', (Write-RevisionRequest $RunId $Override))
 }
 
@@ -161,7 +179,8 @@ Test-Case 'revision without explicit user authorization is rejected and changes 
 Test-Case 'multiple sequential revisions: unique IDs, one open at a time, each based on the latest version' {
     $id = New-ValidatedRun
     Assert-Ok (Invoke-Revise $id) | Out-Null
-    Assert-Fails (Invoke-Revise $id) "Revision 'rev-001' is still open"
+    # The hook records no decision while a revision is open, so this request has no evidence.
+    Assert-Fails (Invoke-Revise $id @{ evidence = @{ decision_id = 'dec-none' } }) "Revision 'rev-001' is still open"
     $v = Complete-RevisionCycle $id 'one' @(New-Finding 'study-planner' 'Session 3 exercise is sized at 60 min but given 50.' 'advisory' 'time_budget')
     Assert-Equal 'P1' $v.suggested_revisions[0].id 'advisory findings are offered, not applied'
     Assert-Equal 'passed' (Get-Step $id 'plan').status 'an advisory finding never reopens the plan by itself'

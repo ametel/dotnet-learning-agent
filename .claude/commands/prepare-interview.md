@@ -1,5 +1,5 @@
 ---
-description: Start a personalized .NET interview-preparation run (requirements, parallel research, coverage validation, study-plan synthesis and validation), or revise a validated plan with "revise <run-id>"; no approval or HTML yet
+description: Start a personalized .NET interview-preparation run (requirements, parallel research, coverage validation, study-plan synthesis and validation, your approval), or revise a validated plan with "revise <run-id>"; no HTML yet
 argument-hint: <describe your target role, seniority, timeline, and weak areas>
 allowed-tools: Agent, AskUserQuestion, Read, Write, WebFetch(domain:learn.microsoft.com), mcp__microsoft-learn__microsoft_docs_fetch, Bash(pwsh -NoProfile -File scripts/state.ps1:*)
 ---
@@ -8,16 +8,29 @@ You are the **coordinator** (hub) of the dotnet-learning-agent workflow. Follow 
 You talk to the user, own `state.json` and `confirmed-input.md`, and delegate specialist
 work to subagents. You never write a subagent's artifact yourself.
 
-**Current scope (Phase 3B):** gather and formalize requirements (Steps 1–6), select
+**Current scope (Phase 4B):** gather and formalize requirements (Steps 1–6), select
 research agents dynamically and run them in parallel (Steps 7–10), validate global research
 coverage (Step 11), synthesize the study plan (Step 12), validate it (Step 13), handle
-targeted retries (Step 14), report and stop (Step 15), and revise a validated plan when the
-user explicitly asks (Step 16). Human approval and HTML are not implemented yet. Do not
-attempt them, and do not suggest they ran.
+targeted retries (Step 14), report and ask for the user's decision (Step 15), and revise a
+validated plan when the user asks (Step 16). HTML rendering is not implemented yet. Do not
+attempt it, and do not suggest it ran.
 
-Files you write by hand: only `confirmed-input.md`, `research-selection.json`, and
-`revision-request.json`. State changes go through `scripts/state.ps1`. Every other artifact
-belongs to a subagent.
+Files you write by hand: only `confirmed-input.md` and `research-selection.json`. State
+changes go through `scripts/state.ps1`. Every other artifact belongs to a subagent.
+
+**Decisions belong to the user (CLAUDE.md §8, §12).** Approving, rejecting, and requesting
+changes to the plan happen only when the user submits one of these as their whole prompt:
+```
+APPROVE PLAN <run_id> <hash12>
+REJECT PLAN <run_id> <hash12>
+REVISE PLAN <run_id> <hash12>: <what to change>
+```
+`<hash12>` is the first 12 hex characters of the current `plan.md` SHA-256. The
+UserPromptSubmit hook records the prompt as ledger evidence and tells you so in its context;
+only then run `pwsh -NoProfile -File scripts/state.ps1 decide -RunId <run_id>`. Never type,
+quote as the user's, schedule, or ask a subagent to produce these phrases; never write
+`approval.json`, anything under `approval/`, or `state.json`. The hooks deny those writes,
+and `decide` refuses evidence whose transcript entry is not the user's typed prompt.
 
 **Integrity:** if any `state.ps1` call fails with `Integrity violation`, a passed artifact
 was modified outside the workflow. Stop, show the user the message, and ask whether to
@@ -351,10 +364,7 @@ is out of attempts), skip to Step 15.
    pwsh -NoProfile -File scripts/state.ps1 complete -RunId <run_id> -Step plan-validation -AgentId <agent-id>
    ```
 4. If it failed, follow Step 14. If it passed, `state.json` shows
-   `workflow_status: awaiting_approval`. The approval state machine exists in `state.ps1`,
-   but capturing the user's decision does not yet (Phase 4B), so do not run
-   `state.ps1 decide`, never write `approval.json` or `approval/decisions.jsonl`, and do not
-   ask for approval. Go to Step 15.
+   `workflow_status: awaiting_approval`. Go to Step 15.
 
 ## Step 14: Targeted retries after a failed gate
 
@@ -377,7 +387,7 @@ step and has reset every downstream step that depended on it to `pending`.
 - If a `complete` prints `"result": "stale"`, an input changed during the attempt. `start`
   the step again; it is not counted as a failed attempt.
 
-## Step 15: Report and stop
+## Step 15: Report, then ask for the user's decision
 
 Tell the user:
 - the run ID, and the path to `requirements.md`, with its mandatory topics and time budget,
@@ -396,16 +406,29 @@ Tell the user:
 - that proof of each real delegation is in `state.json` (`steps.<step>.agent_id` and
   `history`), and that every validator report is archived in `validation/history/`. Do not
   print agent IDs,
-- that human approval and HTML generation are not implemented yet.
+- that HTML generation is not implemented yet.
 
-If the plan passed validation, also say that the user can ask for changes to the plan. The
-passing `complete` of `plan-validation` prints `suggested_revisions` (its advisory
-findings). You may list them as **optional** changes the user could pick. Never start a
-revision because of them: an advisory finding is only a suggestion until the user asks for
-it (Step 16).
+If the plan passed validation, ask for the user's decision:
+1. Run `pwsh -NoProfile -File scripts/state.ps1 ledger-status -RunId <run_id>` and take
+   `plan_sha256` and `plan_version` from it.
+2. Show the plan version, the first 12 characters of `plan_sha256`, and the three exact
+   commands from the top of this prompt with `<run_id>` and `<hash12>` filled in. Explain
+   that the user must submit one of them as the whole prompt, and that a revision request
+   puts their changes after the colon.
+3. You may list the `suggested_revisions` (advisory findings) from the passing
+   `plan-validation` as **optional** changes the user could put in a REVISE command. Never
+   start a revision because of them.
 
-Then **stop**. Do not ask for approval or render HTML. If the user then asks for changes,
-go to Step 16.
+Then **stop** and wait. When the hook's context says a decision was recorded, run `decide`:
+- `approved`: tell the user the plan is approved for this hash, and that HTML rendering is
+  not implemented yet. Stop.
+- `rejected`: tell the user the run is closed (rejection is final). Stop.
+- `changes_requested`: continue at Step 16, step 6, with the revision it opened.
+- `refused`: show the reasons. If evidence was consumed, the user must submit the command
+  again (for a changed plan, with the new hash). Stop.
+
+If the hook blocked the prompt ("Not recorded: ..."), the user sees why; nothing was
+recorded and there is nothing to run.
 
 ## Step 16: Requested plan revision
 
@@ -425,37 +448,23 @@ retry (Step 14): it never uses the retry budget, and `state.ps1` records it sepa
    (budget, timeline, mandatory topics, seniority) or needs new research, say that this
    cannot be done as a plan revision (re-running requirements and research is not
    supported yet), and offer what can be done within the plan.
-4. **Confirm explicitly.** Show a short summary: what will change, that the plan will be
-   regenerated and validated again, and that research is not re-run. Ask the user to
-   confirm. Continue **only** after an explicit "yes". Anything else cancels the revision.
-5. **Record the request.** With `Write`, create `runs/<run_id>/revision-request.json`:
-   ```json
-   {
-     "step": "plan",
-     "requested_by": "user",
-     "source": "user",
-     "advisory_findings": [],
-     "reason": "<one sentence: why the user wants the change>",
-     "feedback": "<the confirmed changes, in the user's words>",
-     "user_confirmation": "<the user's confirming reply, verbatim>"
-   }
-   ```
-   Use `"source": "advisory"` and list the chosen IDs in `advisory_findings` when the user
-   picked advisory findings. After the `Write` result has come back (never in the same
-   message), open the revision:
-   ```
-   pwsh -NoProfile -File scripts/state.ps1 revise -RunId <run_id> -Step plan -RequestFile runs/<run_id>/revision-request.json
-   ```
-   If it prints `"result": "invalid"`, fix the listed problems (or ask the user) and retry.
-   It prints the revision ID, `base_snapshot` (the plan version being revised), and the
-   steps it invalidated.
+4. **Let the user submit the request.** Explain that the plan will be regenerated and
+   validated again, and that research is not re-run. Show the exact command to submit as
+   their whole prompt, with the current hash from `ledger-status`:
+   `REVISE PLAN <run_id> <hash12>: <their changes>`. Their submitted command is both the
+   confirmation and the evidence (CLAUDE.md §6.2, §8.2); do not ask for a separate "yes",
+   and do not write a revision request file.
+5. **Apply it.** When the hook's context says the decision was recorded, run
+   `pwsh -NoProfile -File scripts/state.ps1 decide -RunId <run_id>`. A `changes_requested`
+   result prints the revision ID, `base_snapshot` (the plan version being revised), and the
+   user's `feedback`. A `refused` result lists why; tell the user and stop.
 6. **Regenerate the plan.** `start -Step plan`, then invoke the **study-planner** with the
    Step 12 prompt plus:
    ```
    REVISION_ID: <rev-NNN>
-   ORIGINAL_PLAN_PATH: <base_snapshot from the revise output>
+   ORIGINAL_PLAN_PATH: <base_snapshot from the decide output>
    REVISION_FEEDBACK:
-   <the confirmed feedback, verbatim>
+   <the feedback from the decide output, verbatim>
    ```
    Run the plan gate (`complete -Step plan`). On a gate failure, follow Step 14 and keep
    `REVISION_ID`, `ORIGINAL_PLAN_PATH`, and `REVISION_FEEDBACK` in every retry prompt.
@@ -467,5 +476,6 @@ retry (Step 14): it never uses the retry budget, and `state.ps1` records it sepa
    one it replaced (`versions/plan-v<N>.md` keeps every accepted version), what changed,
    the plan-validation verdict and advisory findings, and how many revisions are left. If
    the revised plan ran out of attempts, the revision is `failed` and so is the run; say so,
-   and point to the last accepted version in `versions/`. Then stop. Approval and HTML are
-   still not implemented.
+   and point to the last accepted version in `versions/`. If it passed, ask for the user's
+   decision on the new version as in Step 15 (the old hash no longer works). HTML is still
+   not implemented.

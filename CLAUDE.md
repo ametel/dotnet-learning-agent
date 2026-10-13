@@ -3,7 +3,7 @@
 This file is the architectural contract for this repository. Claude Code must follow it
 when implementing or running any part of the workflow.
 
-> **Status:** Phase 4A. Implemented in `/prepare-interview`:
+> **Status:** Phase 4B. Implemented in `/prepare-interview`:
 >
 > - requirements gathering,
 > - dynamic selection and parallel execution of research agents,
@@ -30,15 +30,21 @@ when implementing or running any part of the workflow.
 > advisory findings. **Revision retries, failed revisions, and integrity violations
 > (`resolve`) are still tested only with fixture artifacts.**
 >
-> Phase 4A adds the **deterministic approval state machine** in `state.ps1` (§8): the
+> Phase 4A added the **deterministic approval state machine** in `state.ps1` (§8): the
 > `approval` and `render` steps, a hash-chained decision ledger, `decide`, approval
-> invalidation, and `quarantine-ledger`. It is tested with fixture evidence only.
-> **Real human approval is not implemented yet:** nothing captures the user's decision
-> (the UserPromptSubmit hook is Phase 4B), so the coordinator never runs `decide`, and
-> Phase 4A is not an authorization mechanism (§8.4).
-> Not implemented yet: hook-based decision capture, hooks in general, HTML rendering,
-> resume (§7), and revisions of anything other than the plan. Known gaps are listed in
-> §6.3 and §8.4.
+> invalidation, and `quarantine-ledger`.
+> Phase 4B adds the **Claude Code hooks** (§12): UserPromptSubmit captures the user's exact
+> `APPROVE PLAN` / `REJECT PLAN` / `REVISE PLAN` prompt as the only source of decision
+> evidence, `decide` checks its origin in the session transcript, PreToolUse enforces
+> protected files, artifact ownership, and a shell policy, and PostToolUse reports
+> integrity violations. Revisions now need the user's captured REVISE evidence. The hooks
+> are covered by fixture tests and were exercised with real `claude -p` sessions in an
+> isolated scratch project (README); **no real interview-preparation run has used them yet**,
+> and interactive typing was checked only by hand in the Phase 4.0 spike. Hooks are
+> guardrails inside Claude Code, not an OS security boundary, and the transcript check is
+> not proof of identity (§12.5).
+> Not implemented yet: HTML rendering, resume (§7), and revisions of anything other than
+> the plan. Known gaps are listed in §6.3, §8.4, and §12.5.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -250,7 +256,7 @@ runs/<run-id>/
   versions/                  # owner: coordinator (state.ps1 snapshots every accepted artifact version)
   revision-request.json      # owner: coordinator (the latest user-confirmed revision request)
   revisions/                 # owner: coordinator (state.ps1 archives each revision request)
-  approval/decisions.jsonl   # owner: UserPromptSubmit hook (Phase 4B; no writer exists yet). Append-only decision evidence
+  approval/decisions.jsonl   # owner: UserPromptSubmit hook (§12.1), the only writer. Append-only decision evidence
   approval.json              # owner: state.ps1 decide (the applied decision; never evidence by itself)
   approval/history/          # owner: state.ps1 (voided or superseded approval.json files)
   approval/quarantine/       # owner: state.ps1 quarantine-ledger (malformed, unconsumed evidence)
@@ -388,14 +394,20 @@ These are two different mechanisms, and they stay separate.
 **Revisable artifacts:** only `plan` (owner `study-planner`). Research and requirements
 cannot be revised, because re-running requirements is not supported.
 
-**Revision lifecycle** (`state.ps1 revise -RunId <id> -Step plan -RequestFile <json>`):
+**Revision lifecycle** (Phase 4B: opened by `state.ps1 decide` from the user's
+`REVISE PLAN <run-id> <hash12>: <changes>` prompt, §8.2; `state.ps1 revise -RequestFile`
+remains as an equivalent path):
 
-1. **Request.** The coordinator writes `revision-request.json` with `step`,
+1. **Request.** The user submits `REVISE PLAN …` as their whole prompt; the UserPromptSubmit
+   hook records it as `request_changes` ledger evidence with their feedback (§12.1). That
+   prompt is the confirmation. `revise` additionally needs a request file with `step`,
    `requested_by: user`, `source` (`user` or `advisory`, with `advisory_findings` IDs that
    must exist as advisory findings in the current `validation/plan.json`), `reason`,
-   `feedback`, and `user_confirmation` (the user's confirming reply, verbatim). A request
-   missing any of these, or naming another actor, is rejected and nothing is recorded.
-2. **Open.** `revise` checks integrity (§6.4), that the plan and plan validation have
+   `feedback`, `user_confirmation`, and `evidence.decision_id` naming the oldest unconsumed
+   ledger entry, which must be a valid `request_changes` decision for the current plan. An
+   invalid request is rejected and consumes nothing; invalid evidence is consumed and
+   refused. Either way the revision uses the feedback from the evidence (the user's words).
+2. **Open.** `revise`/`decide` check integrity (§6.4), that the plan and plan validation have
    passed, that no revision is open, and the revision limit. It then archives the request,
    records `rev-NNN` in `state.revisions` (`status: open`, base version, base hash, base
    snapshot, base attempt), and only then reopens the plan: `status: pending`,
@@ -426,9 +438,10 @@ Advisory findings are never routed. The passing `complete` of a report step prin
 - **Partly exercised in a real run.** One live revision (v1 → v2) passed on its first
   attempt, and `verify` found no violations. Revision retries, a revision that runs out of
   attempts, and integrity violations with `resolve` are tested with fixtures only.
-- **Authorization is recorded, not proven.** `state.ps1` can require an explicit,
-  well-formed request that quotes the user's confirmation, but it cannot verify that the
-  user actually typed it. The coordinator prompt is the only enforcement.
+- **Authorization is captured, not proven.** Since Phase 4B a revision needs the user's
+  `REVISE PLAN` prompt captured by the hook and checked against the session transcript
+  (§8.2, §12). That ties it to a prompt submitted in the session; it does not prove a human
+  typed it (§12.5).
 - **Only the plan can be revised**, one revision at a time, and only after plan
   validation passed. Feedback that changes confirmed requirements or needs new research is
   out of scope for a revision.
@@ -489,11 +502,14 @@ punctuation, is trimmed.
 
 ## 8. Human approval before final HTML
 
-Target flow (Phase 4B onward): after the plan passes validation, the coordinator shows the
-user a summary and the exact phrases to type to approve, request changes, or reject. A
-UserPromptSubmit hook captures the decision as ledger evidence, and `state.ps1 decide`
-applies it. **Phase 4A implements only the deterministic part (§8.1–§8.3). The capture does
-not exist yet, so in real runs the coordinator stops at `awaiting_approval`.**
+Flow (Phase 4B): after the plan passes validation, the coordinator shows the user a summary,
+the plan version and hash prefix, and the exact commands to submit:
+`APPROVE PLAN <run-id> <hash12>`, `REJECT PLAN <run-id> <hash12>`, or
+`REVISE PLAN <run-id> <hash12>: <changes>`. The UserPromptSubmit hook (§12.1) records the
+user's prompt as ledger evidence; the coordinator then runs `state.ps1 decide`, which checks
+the evidence and the prompt's transcript origin and applies it. The coordinator never
+produces evidence: the hooks deny its writes, and `decide` refuses anything whose transcript
+entry is not the user's typed prompt.
 
 ### 8.1 Approval state machine (implemented, Phase 4A)
 
@@ -516,14 +532,22 @@ not exist yet, so in real runs the coordinator stops at `awaiting_approval`.**
   `prev_sha256` (SHA-256 of the previous line, 64 zeros for the first), `run_id`, `decision`
   (`approve` | `reject` | `request_changes`), `plan_sha256`, `plan_version`, `feedback`
   (`request_changes` only, required), `prompt_sha256`, `prompt_id`, `session_id`,
-  `recorded_at`, `source` (`user-prompt-submit`).
-- **`state.ps1` has no command that writes ledger entries.** The tests use a helper named
-  `Add-TestOnlyLedgerEntry`, which exists only in `tests/`.
+  `transcript_path`, `recorded_at`, `source` (`user-prompt-submit`).
+- **Only the UserPromptSubmit hook writes ledger entries** (§12.1). `state.ps1` has no
+  command that writes them. The tests use a helper named `Add-TestOnlyLedgerEntry`, which
+  exists only in `tests/`.
+- **Origin check.** A prompt's transcript entry is written only after the UserPromptSubmit
+  hook runs, so the hook cannot check it; `decide` does. It finds the `user` entry with the
+  captured `prompt_id` in `transcript_path` and requires: a `promptSource` listed in
+  `.claude/hooks/approval-policy.json` (default `typed`: interactive input; `sdk` from
+  `claude -p` and `system` notifications are refused), no `origin` marker (background-task
+  notifications have one), and message text whose SHA-256 equals `prompt_sha256`. This is a
+  consistency check against a local file, **not proof of a human** (§12.5).
 - `decide` applies the **oldest unconsumed** entry:
   - a malformed entry or broken chain anywhere in the ledger: refused, **not** consumed;
   - stale evidence (another plan hash or version), a plan that is not decidable now, a
-    replayed `prompt_id`, or any decision after a rejection: refused **and** consumed, so it
-    can never be applied later;
+    replayed `prompt_id`, a failed origin check, or any decision after a rejection: refused
+    **and** consumed, so it can never be applied later;
   - otherwise applied. `approve`/`reject` write `approval.json` (`decision`, `decision_id`,
     `ledger_seq`, `ledger_entry_sha256`, `plan_sha256`, `plan_version`,
     `plan_validation_sha256`), snapshotted in `versions/approval-v<N>.json`.
@@ -549,20 +573,16 @@ render` checks it again and requires `guide.html` to contain
 `<meta name="plan-sha256" content="<approved hash>">`. The renderer itself is not built.
 **No HTML is generated without an approval that matches the current plan hash.**
 
-### 8.4 Limitations (Phase 4A)
+### 8.4 Limitations
 
-- **Not an authorization mechanism yet.** Anything that can write files can append a
-  well-formed ledger entry; `prompt_sha256` cannot be checked against anything. Real
-  protection needs the Phase 4B hook as the only writer, plus hook-enforced write and shell
-  policies. Even then, `!` commands and nested `claude` sessions bypass hooks (Phase 4.0
-  spike), and transcript origin fields are not proof of a human.
-- **Temporary deny rules** in `.claude/settings.json` block the direct
-  `pwsh -NoProfile -File scripts/state.ps1 decide` call and `Write`/`Edit` of
-  `runs/*/approval.json` and `runs/*/approval/**`. They hold in every permission mode,
-  including bypassPermissions, and override a slash command's `allowed-tools` (tested).
-  **They are not a security boundary:** `pwsh -Command "& ./scripts/state.ps1 decide"` was
-  not blocked, and other shell indirection can write the files.
-- `revise` (Step 16) does not require ledger evidence yet; that switch comes with the hook.
+- **Guardrails, not an OS security boundary.** Evidence is protected by the hooks (§12)
+  and checked by `decide`. Anything that runs as the same OS user outside Claude Code's
+  tool calls (`!` commands, another terminal, a session started without these hooks) can
+  write the ledger and the transcript. See §12.5.
+- **Deny rules** in `.claude/settings.json` (`Edit` of `runs/*/approval.json` and
+  `runs/*/approval/**`) remain as an extra layer. The Phase 4A deny rule on `decide` was
+  removed in Phase 4B: the coordinator runs `decide`, which applies only hook-captured,
+  origin-checked evidence.
 - A malformed unconsumed entry blocks `decide` until `quarantine-ledger` is run. A user
   decision that arrived after the malformed line is quarantined with it and must be
   submitted again.
@@ -622,9 +642,9 @@ asked.
 | `WebFetch(domain:...)` for `learn.microsoft.com`, `devblogs.microsoft.com`, `github.com`, `martinfowler.com`, `microservices.io` | Curated official and expert sources |
 | `Bash(pwsh -NoProfile -File scripts/state.ps1:*)` | The coordinator's state helper |
 
-Denied (temporary, until the Phase 4B hook exists; not a security boundary, §8.4):
-`Bash(pwsh -NoProfile -File scripts/state.ps1 decide:*)`, `Edit(/runs/*/approval.json)`, and
-`Edit(/runs/*/approval/**)`. An `Edit` rule also covers the `Write` tool.
+Denied (an extra layer behind the hooks, not a security boundary, §8.4):
+`Edit(/runs/*/approval.json)` and `Edit(/runs/*/approval/**)`. An `Edit` rule also covers the
+`Write` tool. The hooks (§12) are registered in the same file by `scripts/pin-hooks.ps1`.
 
 **Limitation:** a background research agent cannot fetch pages on any other domain. Those
 `WebFetch` calls are denied. The agent must record the denial under *Gaps and Limitations*
@@ -656,11 +676,11 @@ Inside a session, `/mcp` shows the server and its tools.
 
 ```
 .claude/agents/     subagent definitions              (requirements, 3 research, validator, planner)
-.claude/commands/   /prepare-interview command        (stops at awaiting_approval)
+.claude/commands/   /prepare-interview command        (through the user's decision; no HTML)
 .claude/skills/     reusable skills                   (planned)
-.claude/hooks/      guardrail hooks                   (planned)
-scripts/            deterministic helpers             (state.ps1)
-tests/              state.ps1 test suite              (run-tests.ps1; approval: state.approval.tests.ps1)
+.claude/hooks/      guardrail hooks                   (UserPromptSubmit, PreToolUse, PostToolUse; §12)
+scripts/            deterministic helpers             (state.ps1, pin-hooks.ps1)
+tests/              state.ps1 test suite              (run-tests.ps1; approval, hooks tests)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
 templates/          final HTML templates              (planned)
@@ -680,3 +700,123 @@ under `runs/` is treated as local and is ignored.
 - Do not add credentials, API keys, or personal data to the repo.
 - Do not claim a feature works unless it has been implemented and exercised.
 - Keep this file current when the architecture changes.
+
+---
+
+## 12. Hooks (implemented, Phase 4B)
+
+Three PowerShell 7 hooks in `.claude/hooks/` share `common.ps1`. They are registered in
+`.claude/settings.json` by `scripts/pin-hooks.ps1` (§12.4). No other dependencies.
+
+### 12.1 UserPromptSubmit: capturing the user's decision
+
+- Captures a prompt only when the **whole prompt** is exactly `APPROVE PLAN <run-id>
+  <hash12>`, `REJECT PLAN <run-id> <hash12>`, or `REVISE PLAN <run-id> <hash12>: <changes>`
+  (case-sensitive; `<hash12>` is the first 12 hex characters of the current plan's SHA-256).
+- This hook also fires for system-generated prompts (Phase 4.0 spike): a background-agent
+  notification carries the subagent's text. Prompts that start with markup or contain
+  `<task-notification>`, `<agent-message>`, or `<system-reminder>` are never captured, nor is
+  a prompt that only mentions a decision phrase. Both are let through with a note.
+- A prompt that starts like a decision but is malformed, names an unknown run, has another
+  plan's hash, or comes when the plan cannot be decided on (not validated, revision open,
+  rejected, already approved, integrity violation, invalid ledger, unfinished quarantine) is
+  **blocked** with the reason. Nothing is recorded.
+- A valid decision is appended to `approval/decisions.jsonl` under the run's `state.lock`
+  (the same lock `state.ps1` uses), chained to the previous line. It reads the run with the
+  read-only, lock-free `state.ps1 ledger-status`. The hook then tells the coordinator to run
+  `state.ps1 decide`, which performs the origin check (§8.2) and applies the decision.
+- On an internal error the prompt is blocked and nothing is recorded.
+
+### 12.2 PreToolUse: protected files, ownership, and the shell
+
+For `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, and `PowerShell`:
+
+| Target | Decision |
+|---|---|
+| `runs/<id>/state.json`, `state.lock`, `versions/**`, `validation/history/**`, `revisions/**`, `approval/**`, `approval.json`, `guide.html` | **deny** for everyone (written only by `state.ps1` and the hooks) |
+| A step's artifact (`requirements.md`, `research/<area>.md`, `validation/{coverage,plan}.{json,md}`, `plan.md`) | allowed only for the owning `agent_type` while that step is `running`; **deny** otherwise, including for the coordinator |
+| `confirmed-input.md`, `research-selection.json`, `revision-request.json` | coordinator only (no `agent_type`); the first two only before their step starts |
+| Any other file under `runs/`, a run without `state.json`, a path through a junction or symlink | **deny** |
+| Session transcripts (`~/.claude/projects/**/*.jsonl`) | **deny** |
+| `.claude/settings*.json`, `.claude/hooks/**`, `.claude/commands/**`, `.claude/agents/**`, `scripts/**` | **ask** the user (decision D6); **deny** for subagents |
+| Anything else written by a workflow subagent | **deny** |
+| Anything else | no decision: Claude Code's normal permissions apply |
+
+Shell commands (`Bash`, `PowerShell`):
+
+- Always allowed (no decision): `pwsh -NoProfile -File scripts/state.ps1 <verb> ...`,
+  `pwsh -NoProfile -File tests/run-tests.ps1 ...`, and `git status|diff|log|show ...`, each
+  without shell operators (`;`, `&`, `|`, `>`, `<`, `` ` ``, `$`, parentheses), except `|`
+  inside a single-quoted argument.
+- Always denied: nested Claude Code sessions (`claude`, `npx @anthropic-ai/claude-code`;
+  they can skip project hooks), encoded or evaluated commands (`pwsh -EncodedCommand`,
+  `iex`, `Invoke-Expression`, `FromBase64String`), and commands naming protected files
+  (approval files, `state.json`, `state.lock`, `guide.html`, `versions/`, `revisions/`,
+  `validation/history`, `.claude/hooks`, `.claude/settings`, transcripts).
+- **Strict mode (decision D1):** while any run is open (not `completed`, `rejected`, or
+  `failed`, and updated within the last 24 hours), every other shell command is denied. The
+  user can still run anything with `!`, which hooks do not see. An abandoned run stops
+  restricting the shell 24 hours after its last update.
+- Workflow subagents get no shell access.
+
+Any internal error denies the call (exit 2).
+
+### 12.3 PostToolUse: integrity after the fact
+
+After a file write under `runs/`, or a shell command while runs are open, the hook checks
+the affected runs with the read-only, lock-free `state.ps1 ledger-status`. It recomputes
+every passed artifact's hash from disk, so it finds **new** violations, and it never writes.
+Only when it finds a violation that `state.json` has not recorded yet does the hook run
+`state.ps1 verify`, which records it and blocks the run (§6.4). This includes an
+**unauthorized `guide.html`**: one whose hash is not the output of a render attempt of that
+run. A clean check, or an already recorded violation, writes nothing and does not refresh
+`updated_at`, so a hook run never keeps a run "open" (§12.2). The hook reports violations
+to the model. It never repairs, restores, moves, or deletes a file (decision D5), and it
+cannot undo the tool call.
+
+### 12.4 Pinned launchers
+
+Claude Code runs hook scripts from disk on every call (Phase 4.0 spike), so a script changed
+mid-session would run unchecked. Each hook is therefore started by an inline launcher in
+`.claude/settings.json`, generated by `scripts/pin-hooks.ps1`, that checks the SHA-256 of
+`common.ps1`, the three hooks, `approval-policy.json`, and `scripts/state.ps1` first:
+
+- PreToolUse: on a mismatch or crash, every tool call is denied (exit 2).
+- PostToolUse: the failure is reported (exit 2).
+- UserPromptSubmit: the hook does not run, so **nothing is recorded**, but prompts still go
+  through.
+
+After changing a pinned file, run `! pwsh -NoProfile -File scripts/pin-hooks.ps1`. Until
+then, the session's tools are blocked by design. Restart Claude Code if the new pins do not
+take effect.
+
+**When hook settings take effect (observed, Claude Code 2.1.296):** when `pin-hooks.ps1`
+rewrote `settings.json` from a shell command, the **running** interactive session applied
+the new hooks at once, including PostToolUse for that same command. In the Phase 4.0 spike,
+a model's `Write` of `{}` to `settings.json` did **not** remove the hooks within that
+headless session. Do not rely on either behavior: treat a settings change as possibly live
+immediately, and possibly only after a restart.
+
+**Incident (2026-10-13):** the first activation in this repository ran the original
+PostToolUse, which called `verify` (it always saves) on the four open local runs. Their
+`state.json` was rewritten with the Phase 4A upgrade (new `approval`/`render` steps,
+recomputed status fields, `updated_at`); no other file changed. The runs were left as they
+are. PostToolUse was then changed to check read-only first (§12.3).
+
+### 12.5 Limitations
+
+- **Hooks are guardrails inside Claude Code, not an OS security boundary.** They see only
+  Claude Code's own tool calls and prompts. `!` commands (verified in Phase 4.0), other
+  terminals, editors, and sessions started without these hooks (`--bare`,
+  `--setting-sources` without project settings) can write any file the user can.
+- **Shell matching is pattern-based.** The allowlist is narrow, but the always-on denylist
+  for when no run is open can be bypassed by indirection.
+- **Transcript origin is a consistency check, not identity.** It shows that Claude Code
+  recorded the prompt as typed input in that session. It does not prove who typed it, and
+  the transcript is a local file. The check does not distinguish pasted text from typed
+  text.
+- **Hook settings may take effect immediately or only after a restart** (§12.4). Adding or
+  re-pinning hooks was observed to apply to the running session. PreToolUse asks before
+  edits to `settings.json`, but cannot see edits made outside Claude Code.
+- **24-hour open-run window.** Strict shell mode depends on `updated_at`; a run untouched
+  for 24 hours stops restricting the shell.

@@ -10,8 +10,7 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress (Phase 4A).** `/prepare-interview` runs these steps, then
-stops:
+🚧 **Implementation in progress (Phase 4B).** `/prepare-interview` runs these steps:
 
 1. It gathers and confirms your requirements. The `requirements-formalizer` writes
    `requirements.md`, including your **mandatory topics** (your stated gaps and requested
@@ -25,26 +24,43 @@ stops:
    in the research.
 6. The validator runs the **plan quality gate**.
 
+7. It asks for **your decision** on the validated plan (CLAUDE.md §8), then stops. HTML
+   generation is not implemented yet.
+
 A failed gate re-runs only the agent that owns the problem (at most 3 attempts per
-artifact), and dependent steps are invalidated and regenerated. The run then waits for your
-decision (`workflow_status: awaiting_approval`), but **real approval is not implemented
-yet**, and neither is HTML generation (see below).
+artifact), and dependent steps are invalidated and regenerated.
 
-**Approval (Phase 4A: the state machine only, CLAUDE.md §8):** `state.ps1` now has
-`approval` and `render` steps after plan validation. A decision (approve, request changes,
-or reject) is applied by `state.ps1 decide` only from evidence in an append-only,
-hash-chained ledger (`approval/decisions.jsonl`) that is bound to the SHA-256 of the current
-validated plan. Stale, replayed, or malformed evidence is refused; `approval.json` or an
-edited `state.json` is never accepted as proof. Any later change to the plan voids the
-approval, and rejection is final. `quarantine-ledger` moves malformed, unconsumed evidence
-aside without hand-editing the ledger. **Nothing writes the ledger yet**: the
-UserPromptSubmit hook that will capture what you type is Phase 4B. Until then the coordinator
-never runs `decide`, and Phase 4A is tested with fixture evidence only.
+**Your decision (Phase 4B, CLAUDE.md §8 and §12).** The coordinator shows the plan version
+and the first 12 characters of its SHA-256. You answer with one of these as your whole
+prompt:
 
-After the plan passes validation, you can ask for changes to it, in the same session or
-later with `/prepare-interview revise <run-id>`. The coordinator confirms the change with
-you, records the request, and then reopens only the plan. The `study-planner` revises it
-from the validated research, and the plan is validated again. Research is not re-run.
+```
+APPROVE PLAN <run-id> <hash12>
+REJECT PLAN <run-id> <hash12>
+REVISE PLAN <run-id> <hash12>: <what to change>
+```
+
+A UserPromptSubmit hook records exactly that prompt as evidence in an append-only,
+hash-chained ledger (`approval/decisions.jsonl`). The coordinator then runs `state.ps1
+decide`, which checks the evidence against the current plan and against the session
+transcript (it must be a prompt Claude Code recorded as typed, with the same text). The
+coordinator cannot produce evidence: hooks deny its writes to approval files, state, and
+history, and background-agent notifications or prompts that only mention a command are
+never recorded. Any later change to the plan voids the approval; rejection is final.
+
+`REVISE PLAN` is also how you ask for changes to a validated plan, in the same session or
+later with `/prepare-interview revise <run-id>`. Only the plan reopens: the
+`study-planner` revises it from the validated research using your words, and the plan is
+validated again. Research is not re-run.
+
+**Guardrail hooks.** PreToolUse enforces artifact ownership (only the owning agent, only
+while its step runs), denies direct writes to state, version history, approval evidence,
+and the guide, and, while a run is open, limits shell commands to `state.ps1`, the test
+runner, and read-only git. PostToolUse runs the integrity check after relevant writes and
+reports violations without repairing anything. The hooks are pinned by hash; after editing
+a hook or `state.ps1`, run `! pwsh -NoProfile -File scripts/pin-hooks.ps1` and restart
+Claude Code. They are guardrails inside Claude Code, **not an OS security boundary** (see
+Known limitations).
 
 **Gate-failure retries vs. requested revisions** (CLAUDE.md §6.2):
 - **A retry** is automatic. It happens when a gate fails or a validator finds a
@@ -60,6 +76,37 @@ recorded with a version number and hash, and copied to `versions/`. If a passed 
 is edited outside the workflow, the run is **blocked**. The edit is never accepted or
 passed on to later steps. To continue, restore the accepted version, or discard the
 artifact so its owner regenerates it (`state.ps1 resolve`).
+
+### Hooks verified with real Claude Code sessions (2026-10-13, Phase 4B)
+
+Headless `claude -p` sessions (Claude Code 2.1.296, Windows 11, PowerShell 7.6) ran in an
+isolated scratch copy of the project, with the hooks pinned and two validated fixture runs.
+The repository and its real runs were not used.
+
+- **Capture and origin:** `APPROVE PLAN <run> <hash12>` was recorded by the hook, and the
+  model ran `decide` as the hook instructed. With the default policy (`typed` only), `decide`
+  refused it, because the transcript records a `claude -p` prompt as `promptSource: sdk`.
+  The transcript text matched the captured hash. With the scratch policy set to also accept
+  `sdk` (test only), the same flow approved the plan.
+- **Notifications:** a background subagent whose reply was the exact approval phrase
+  produced a `system / task_notification` prompt; nothing was recorded.
+- **REVISE PLAN:** captured, applied by `decide`, and turned into revision `rev-001` with the
+  user's words and a reference to its evidence.
+- **Bypass attempts in bypassPermissions mode:** writes to `approval.json`,
+  `approval/decisions.jsonl`, `plan.md` (by the coordinator), and `guide.html`, a shell
+  redirect into an approval file, `pwsh -Command "& ./scripts/state.ps1 decide"`, a nested
+  `claude -p`, and `ls` while a run was open were all denied. `state.ps1 start -Step render`
+  was allowed by the hook and refused by `state.ps1`. No run file changed.
+- **Ownership with real `agent_type`:** the `study-planner` subagent wrote `plan.md` while
+  the plan step was running; its write to `research/data.md` was denied.
+- **PostToolUse:** after `research/dotnet.md` was edited outside Claude Code, the next
+  `git status` call reported the integrity violation; the run became `blocked`, and the
+  file was left as it was.
+- **Pinning:** with one hook file changed, a `Write` call was denied and a `REJECT PLAN`
+  prompt recorded nothing.
+
+Interactive typing (`promptSource: typed`) was checked by hand in the Phase 4.0 spike, not in
+these automated sessions.
 
 ### Verified plan revision with live agents (2026-10-12, Phase 3B)
 
@@ -172,22 +219,29 @@ local (`runs/` is git-ignored), so it is not committed.
   invalidated automatically. Research steps are not: a changed `requirements.md` or
   `confirmed-input.md` blocks research instead, and re-running requirements is not
   supported. Resume is not implemented (CLAUDE.md §7).
-- **No real approval or HTML yet.** The run stops at `awaiting_approval`. The approval
-  state machine exists, but nothing captures your decision (Phase 4B), so it is **not an
-  authorization mechanism**: anything that can write files could append well-formed ledger
-  evidence. Temporary deny rules in `.claude/settings.json` block the direct
-  `state.ps1 decide` call and `Write`/`Edit` of approval files in every permission mode, but
-  they are **not a security boundary**: in testing, `pwsh -Command "& ./scripts/state.ps1
-  decide"` got through.
+- **No HTML yet.** The run stops after your decision.
+- **Hooks are guardrails, not an OS security boundary** (CLAUDE.md §12.5). They see only
+  Claude Code's own prompts and tool calls. `!` commands, other terminals and editors, and
+  sessions started without the project's hooks can write any file you can, including the
+  decision ledger and the session transcript.
+- **The origin check is not proof of identity.** `decide` checks that Claude Code recorded
+  your prompt as typed input with the same text. That ties the decision to a prompt in the
+  session; it does not prove who typed it, and it does not distinguish pasted text.
+- **Strict shell mode** applies while any run is open (not completed, rejected, or failed,
+  and updated within 24 hours): the model may run only `state.ps1`, the test runner, and
+  read-only git. Use `!` for anything else. An abandoned run stops restricting the shell
+  after 24 hours.
+- **Editing a hook or `state.ps1` blocks the session's tools** until you re-pin
+  (`! pwsh -NoProfile -File scripts/pin-hooks.ps1`) and restart Claude Code. That is the
+  intended fail-closed behavior.
 - **Ledger recovery is partly manual.** A malformed unconsumed entry blocks `decide` until
   `state.ps1 quarantine-ledger` moves it (and anything after it) aside. Damaged consumed
   entries can only be restored by hand.
 - **The plan gate parses only its own format.** It reads the schedule table, front matter,
   and URLs in the exact format the `study-planner` prompt defines. A differently formatted
   but valid plan fails the gate and is retried.
-- No hooks enforce artifact ownership yet. The coordinator prompt, the agents'
-  instructions, and the deny rules above are the only enforcement. `state.ps1` itself
-  refuses to start or pass the `render` step without a valid approval.
+- `state.ps1` itself refuses to start or pass the `render` step without a valid approval,
+  independently of the hooks.
 - State locking is tested only on Windows (NTFS). On Linux and macOS, .NET emulates
   `FileShare.None` with advisory locks, and `DeleteOnClose` unlinks the lock file. That
   combination has a known race that the tests do not cover.
@@ -214,6 +268,27 @@ The exit code is 0 when every test passes. Every run works in a fresh directory 
 system temp folder, passed to `state.ps1` with `-RunsRoot`, and deletes it at the end.
 Nothing is written to `runs/`.
 
+- **Phase 4B hook tests (15, `tests/hooks.tests.ps1`):** each hook runs exactly as Claude
+  Code runs it (hook-input JSON on stdin). These cover:
+  - UserPromptSubmit: an exact typed approval recorded and then applied by `decide` after the
+    transcript check; background-agent notifications, agent messages, and prompts that only
+    mention a decision never recorded; malformed commands, another plan's hash, an unknown
+    run, and an undecidable plan blocked with nothing recorded; REVISE and REJECT captured;
+    a decision captured before the plan changed refused as stale,
+  - `decide` refusing evidence whose transcript entry is a system notification, an `sdk`
+    prompt, different text, missing, or in a missing transcript,
+  - `revise` requiring the user's REVISE evidence and using the user's words,
+  - PreToolUse: denied writes to state, history, approval evidence, the guide, and
+    transcripts; ownership by `agent_type` and running step; `ask` for configuration and
+    scripts; writes through a junction; the shell allowlist, nested sessions, encoded
+    commands, protected paths, and strict mode,
+  - PostToolUse: integrity violations and an unauthorized `guide.html` reported, nothing
+    repaired or deleted; a model-written `approval.json` authorizes nothing; a clean check
+    never writes `state.json` or refreshes `updated_at`, and a new violation is recorded once;
+    an old schema-1 run without a plan is checked, and a failed check is not reported as a
+    violation,
+  - fail-closed handling of malformed input, and the pinned launchers (a changed hook file
+    denies tools and records no decision; re-pinning accepts it).
 - **Phase 4A tests (14, `tests/state.approval.tests.ps1`):** decision evidence is written
   by the test-only helper `Add-TestOnlyLedgerEntry` (production has no ledger writer). These
   cover:
@@ -292,14 +367,17 @@ Nothing is written to `runs/`.
   After every operation the tests check that `state.json` parses. After every batch they
   check that no `state.lock` or temp file is left behind.
 
-Last full run (2026-10-13, Phase 4A, Windows 11, PowerShell 7.6, `-Iterations 5`):
+Last full run (2026-10-13, Phase 4B, Windows 11, PowerShell 7.6, `-Iterations 5`):
 
-- **76 of 76 tests passed** in about 17 minutes.
+- **89 of 89 tests passed** in about 26 minutes.
 - **Overlap:** there were 60 concurrent batches. In all 60, every operation overlapped
-  every other one, and start times were spread by 2 ms on average (24 ms at most).
-- **Readers:** unlocked readers parsed `state.json` 8,660 times and saw 0 invalid reads
-  (5 reads hit a transient file-sharing error while opening the file; those are counted
+  every other one, and start times were spread by 2 ms on average (20 ms at most).
+- **Readers:** unlocked readers parsed `state.json` 8,539 times and saw 0 invalid reads
+  (9 reads hit a transient file-sharing error while opening the file; those are counted
   separately and the reader just reads again on its next loop).
+- That run predates the final PostToolUse change (read-only checks, and handling of runs
+  without a plan). Its tests (the PostToolUse and pinning tests, including the 2 tests added
+  with it) were run on their own afterwards: **4 of 4 passed**. The suite now has 91 tests.
 
 The concurrency tests exercise the research steps. The Phase 3A and 3B steps run one at a
 time by design, so they are tested sequentially.

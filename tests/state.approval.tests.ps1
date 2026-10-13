@@ -2,71 +2,8 @@
 # Phase 4A tests: the deterministic approval state machine. A decision is applied only from
 # valid, unconsumed ledger evidence bound to the SHA-256 of the current validated plan.
 # Dot-sourced by tests/run-tests.ps1 after state.revision.tests.ps1 (New-ValidatedRun,
-# Invoke-Revise, Complete-RevisionCycle, Get-FileSha). Agent outputs are fixtures.
-
-function Get-TextSha([string]$Text) {
-    $stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($Text))
-    try { (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant() } finally { $stream.Dispose() }
-}
-
-function Get-LedgerFile([string]$RunId) { Join-Path (Get-RunDir $RunId) 'approval/decisions.jsonl' }
-
-function Get-LedgerLines([string]$RunId) {
-    $path = Get-LedgerFile $RunId
-    if (-not (Test-Path -LiteralPath $path)) { return @() }
-    @([System.IO.File]::ReadAllText($path) -split "`n" | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_ -ne '' })
-}
-
-function Add-LedgerLine([string]$RunId, [string]$Line) {
-    $path = Get-LedgerFile $RunId
-    New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
-    [System.IO.File]::AppendAllText($path, "$Line`n", [System.Text.UTF8Encoding]::new($false))
-}
-
-# TEST-ONLY evidence writer. It stands in for the Phase 4B UserPromptSubmit hook, which will be
-# the only production writer of the ledger. state.ps1 deliberately has no command that writes
-# ledger entries, so nothing in production can manufacture a user decision this way.
-# Defaults produce a valid, correctly chained entry for the current plan; -Override replaces
-# (or, with $null, removes) fields to forge invalid evidence.
-function Add-TestOnlyLedgerEntry {
-    param(
-        [string]$RunId,
-        [ValidateSet('approve', 'reject', 'request_changes')][string]$Decision = 'approve',
-        [string]$PlanSha,
-        [int]$PlanVersion,
-        [string]$Feedback,
-        [string]$PromptId = "prompt-$([guid]::NewGuid().ToString('N').Substring(0, 8))",
-        [hashtable]$Override = @{}
-    )
-    $lines = @(Get-LedgerLines $RunId)
-    $seq = $lines.Count + 1
-    if (-not $PlanSha) { $PlanSha = Get-FileSha $RunId 'plan.md' }
-    if (-not $PlanVersion) { $PlanVersion = (Read-RunState $RunId).steps.plan.version }
-    $prompt = switch ($Decision) {
-        'approve' { "APPROVE PLAN $RunId $($PlanSha.Substring(0, 12))" }
-        'reject' { "REJECT PLAN $RunId" }
-        'request_changes' { "REVISE PLAN $RunId $($PlanSha.Substring(0, 12)): $Feedback" }
-    }
-    $entry = [ordered]@{
-        schema        = 1
-        seq           = $seq
-        decision_id   = 'dec-{0:000}' -f $seq
-        prev_sha256   = $(if ($lines.Count) { Get-TextSha $lines[-1] } else { '0' * 64 })
-        run_id        = $RunId
-        decision      = $Decision
-        plan_sha256   = $PlanSha
-        plan_version  = $PlanVersion
-        prompt_sha256 = Get-TextSha $prompt
-        prompt_id     = $PromptId
-        session_id    = 'test-session'
-        recorded_at   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        source        = 'user-prompt-submit'
-    }
-    if ($Decision -eq 'request_changes') { $entry.feedback = $Feedback }
-    foreach ($k in $Override.Keys) { if ($null -eq $Override[$k]) { $entry.Remove($k) } else { $entry[$k] = $Override[$k] } }
-    Add-LedgerLine $RunId ($entry | ConvertTo-Json -Compress)
-    return $entry
-}
+# Invoke-Revise, Complete-RevisionCycle, Get-FileSha) and uses the ledger helpers of
+# StateTestKit.ps1 (Add-TestOnlyLedgerEntry). Agent outputs are fixtures.
 
 function Invoke-Decide([string]$RunId) { Invoke-State @('decide', '-RunId', $RunId) }
 
@@ -243,8 +180,10 @@ Test-Case 'stale evidence (another plan hash or version, or a plan not yet valid
     Assert-Fails (Invoke-Decide $id) 'No unconsumed decision evidence'
 
     $s = Read-RunState $id
-    Assert-Equal 4 $s.steps.approval.consumed_through
-    Assert-Equal 'refused,refused,refused,refused' ((@($s.steps.approval.decisions) | ForEach-Object { $_.outcome }) -join ',')
+    # Each revision consumes the user's REVISE evidence (Phase 4B); every stale approval is refused.
+    Assert-Equal 6 $s.steps.approval.consumed_through
+    Assert-Equal 'request_changes:applied,approve:refused,approve:refused,approve:refused,request_changes:applied,approve:refused' `
+        ((@($s.steps.approval.decisions) | ForEach-Object { "$($_.decision):$($_.outcome)" }) -join ',')
     Assert-Equal 'awaiting_decision' $s.steps.approval.status
 }
 

@@ -307,6 +307,92 @@ function Complete-Plan([string]$RunId, [string[]]$Areas = @('dotnet', 'data', 'a
     Assert-Ok (Invoke-State @('complete', '-RunId', $RunId, '-Step', 'plan', '-AgentId', 'planner-1')) | Out-Null
 }
 
+# ---------------------------------------------------------------- decision ledger fixtures
+
+function Get-TextSha([string]$Text) {
+    $stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($Text))
+    try { (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant() } finally { $stream.Dispose() }
+}
+
+function Get-LedgerFile([string]$RunId) { Join-Path (Get-RunDir $RunId) 'approval/decisions.jsonl' }
+
+function Get-LedgerLines([string]$RunId) {
+    $path = Get-LedgerFile $RunId
+    if (-not (Test-Path -LiteralPath $path)) { return @() }
+    @([System.IO.File]::ReadAllText($path) -split "`n" | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_ -ne '' })
+}
+
+function Add-LedgerLine([string]$RunId, [string]$Line) {
+    $path = Get-LedgerFile $RunId
+    New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+    [System.IO.File]::AppendAllText($path, "$Line`n", [System.Text.UTF8Encoding]::new($false))
+}
+
+# A fixture session transcript, as Claude Code writes it: one `user` entry per prompt.
+function Get-TestTranscript([string]$RunId) { Join-Path $script:TestRoot 'transcripts' "session-$RunId.jsonl" }
+
+function Add-TranscriptPrompt([string]$RunId, [string]$PromptId, [string]$Content, [string]$PromptSource = 'typed', [string]$TurnOrigin = 'human', $Origin = $null) {
+    $path = Get-TestTranscript $RunId
+    New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+    $e = [ordered]@{ type = 'user'; promptId = $PromptId; promptSource = $PromptSource; turnOrigin = $TurnOrigin; message = [ordered]@{ role = 'user'; content = $Content } }
+    if ($Origin) { $e.origin = $Origin }
+    [System.IO.File]::AppendAllText($path, ($e | ConvertTo-Json -Compress -Depth 5) + "`n", [System.Text.UTF8Encoding]::new($false))
+}
+
+# TEST-ONLY evidence writer, standing in for the UserPromptSubmit hook (the only production
+# writer of the ledger; state.ps1 has no command that writes it). Defaults produce a valid,
+# correctly chained entry for the current plan, plus the matching typed prompt in the fixture
+# transcript. -Override replaces (or, with $null, removes) entry fields; -PromptSource,
+# -Origin, -TranscriptContent and -NoTranscript shape what the transcript says.
+function Add-TestOnlyLedgerEntry {
+    param(
+        [string]$RunId,
+        [ValidateSet('approve', 'reject', 'request_changes')][string]$Decision = 'approve',
+        [string]$PlanSha,
+        [int]$PlanVersion,
+        [string]$Feedback,
+        [string]$PromptId = "prompt-$([guid]::NewGuid().ToString('N').Substring(0, 8))",
+        [hashtable]$Override = @{},
+        [string]$PromptSource = 'typed',
+        $Origin = $null,
+        [string]$TranscriptContent,
+        [switch]$NoTranscript
+    )
+    $lines = @(Get-LedgerLines $RunId)
+    $seq = $lines.Count + 1
+    if (-not $PlanSha) { $PlanSha = Get-FileSha $RunId 'plan.md' }
+    if (-not $PlanVersion) { $PlanVersion = (Read-RunState $RunId).steps.plan.version }
+    $prompt = switch ($Decision) {
+        'approve' { "APPROVE PLAN $RunId $($PlanSha.Substring(0, 12))" }
+        'reject' { "REJECT PLAN $RunId $($PlanSha.Substring(0, 12))" }
+        'request_changes' { "REVISE PLAN $RunId $($PlanSha.Substring(0, 12)): $Feedback" }
+    }
+    $entry = [ordered]@{
+        schema          = 1
+        seq             = $seq
+        decision_id     = 'dec-{0:000}' -f $seq
+        prev_sha256     = $(if ($lines.Count) { Get-TextSha $lines[-1] } else { '0' * 64 })
+        run_id          = $RunId
+        decision        = $Decision
+        plan_sha256     = $PlanSha
+        plan_version    = $PlanVersion
+        prompt_sha256   = Get-TextSha $prompt
+        prompt_id       = $PromptId
+        session_id      = 'test-session'
+        transcript_path = Get-TestTranscript $RunId
+        recorded_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        source          = 'user-prompt-submit'
+    }
+    if ($Decision -eq 'request_changes') { $entry.feedback = $Feedback }
+    foreach ($k in $Override.Keys) { if ($null -eq $Override[$k]) { $entry.Remove($k) } else { $entry[$k] = $Override[$k] } }
+    if (-not $NoTranscript) {
+        $content = if ($PSBoundParameters.ContainsKey('TranscriptContent')) { $TranscriptContent } else { $prompt }
+        Add-TranscriptPrompt $RunId $PromptId $content $PromptSource $(if ($Origin) { 'task_notification' } else { 'human' }) $Origin
+    }
+    Add-LedgerLine $RunId ($entry | ConvertTo-Json -Compress)
+    return $entry
+}
+
 # No lock file and no temp files may be left in a run directory after operations finish.
 function Assert-NoLeftovers([string]$RunId) {
     $dir = Get-RunDir $RunId

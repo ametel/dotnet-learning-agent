@@ -34,6 +34,7 @@ try {
     . (Join-Path $PSScriptRoot 'state.synthesis.tests.ps1')
     . (Join-Path $PSScriptRoot 'state.revision.tests.ps1')
     . (Join-Path $PSScriptRoot 'state.approval.tests.ps1')
+    . (Join-Path $PSScriptRoot 'hooks.tests.ps1')
     if (-not $SkipConcurrency) { . (Join-Path $PSScriptRoot 'state.concurrency.tests.ps1') }
     if ($SensitivityCheck) { . (Join-Path $PSScriptRoot 'sensitivity-check.ps1') }
     $failed = Write-TestSummary
