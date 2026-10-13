@@ -795,7 +795,8 @@ function Get-PromptOriginProblems($Entry) {
     $p = @()
     $accepted = Get-AcceptedPromptSources
     if ("$($found['promptSource'])" -notin $accepted) { $p += "Not a user-typed prompt: the transcript records promptSource '$($found['promptSource'])' (accepted: $($accepted -join ', '))." }
-    if ($found['origin']) { $p += "System-generated prompt: the transcript records origin '$($found['origin']['kind'])'." }
+    # Interactive typed prompts carry origin { kind: human }; anything else is system-generated.
+    if ($found['origin'] -and "$($found['origin']['kind'])" -ne 'human') { $p += "System-generated prompt: the transcript records origin '$($found['origin']['kind'])'." }
     if ((Get-StringHash256 $found['message']['content']) -ne "$($Entry['prompt_sha256'])") { $p += 'The prompt in the transcript does not match the captured decision.' }
     return , $p
 }

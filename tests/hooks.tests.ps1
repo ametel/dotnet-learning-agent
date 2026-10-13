@@ -149,6 +149,30 @@ Test-Case 'decide refuses captured evidence whose transcript entry is system-gen
     Assert-True (-not (Test-Path (Join-Path (Get-RunDir $id) 'approval.json'))) 'nothing was approved'
 }
 
+Test-Case 'decide accepts an interactive typed prompt (origin kind human) and still refuses notifications and peer messages' {
+    # Interactive Claude Code records a typed prompt as promptSource typed, turnOrigin human,
+    # origin { kind: human } (observed in the real Phase 4B integration test).
+    $id = New-ValidatedRun
+    $peer = Add-TestOnlyLedgerEntry $id 'approve' -NoTranscript
+    Add-TranscriptPrompt $id $peer.prompt_id "APPROVE PLAN $id $(Get-Sha12 $id)" 'system' 'peer'
+    $r = Invoke-Decide $id
+    Assert-Fails $r "promptSource 'system'"
+    Assert-Equal $true $r.Json.consumed
+    $note = Add-TestOnlyLedgerEntry $id 'approve' -NoTranscript
+    Add-TranscriptPrompt $id $note.prompt_id "APPROVE PLAN $id $(Get-Sha12 $id)" 'typed' 'task_notification' @{ kind = 'task-notification' }
+    Assert-Fails (Invoke-Decide $id) "System-generated prompt: the transcript records origin 'task-notification'"
+    $mismatch = Add-TestOnlyLedgerEntry $id 'approve' -NoTranscript
+    Add-TranscriptPrompt $id $mismatch.prompt_id "APPROVE PLAN $id $(Get-Sha12 $id) " 'typed' 'human' @{ kind = 'human' }
+    Assert-Fails (Invoke-Decide $id) 'does not match the captured decision'
+
+    $typed = Add-TestOnlyLedgerEntry $id 'approve' -NoTranscript
+    Add-TranscriptPrompt $id $typed.prompt_id "APPROVE PLAN $id $(Get-Sha12 $id)" 'typed' 'human' @{ kind = 'human' }
+    $d = Assert-Ok (Invoke-Decide $id)
+    Assert-Equal 'approved' $d.result
+    Assert-Equal $typed.decision_id $d.decision_id
+    Assert-Equal 'refused,refused,refused,applied' ((@((Read-RunState $id).steps.approval.decisions) | ForEach-Object { $_.outcome }) -join ',')
+}
+
 Test-Case 'REVISE and REJECT are captured by the hook; a decision captured before the plan changed is stale' {
     $id = New-ValidatedRun
     $sha12 = Get-Sha12 $id

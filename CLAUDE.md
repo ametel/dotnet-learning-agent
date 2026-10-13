@@ -540,9 +540,11 @@ entry is not the user's typed prompt.
   hook runs, so the hook cannot check it; `decide` does. It finds the `user` entry with the
   captured `prompt_id` in `transcript_path` and requires: a `promptSource` listed in
   `.claude/hooks/approval-policy.json` (default `typed`: interactive input; `sdk` from
-  `claude -p` and `system` notifications are refused), no `origin` marker (background-task
-  notifications have one), and message text whose SHA-256 equals `prompt_sha256`. This is a
-  consistency check against a local file, **not proof of a human** (§12.5).
+  `claude -p` and `system` notifications and peer messages are refused), no `origin` other
+  than `{ "kind": "human" }` (interactive typed prompts carry that one; background-task
+  notifications carry `task-notification`), and message text whose SHA-256 equals
+  `prompt_sha256`. This is a consistency check against a local file, **not proof of a
+  human** (§12.5).
 - `decide` applies the **oldest unconsumed** entry:
   - a malformed entry or broken chain anywhere in the ledger: refused, **not** consumed;
   - stale evidence (another plan hash or version), a plan that is not decidable now, a
