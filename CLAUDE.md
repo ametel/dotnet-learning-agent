@@ -39,12 +39,16 @@ when implementing or running any part of the workflow.
 > protected files, artifact ownership, and a shell policy, and PostToolUse reports
 > integrity violations. Revisions now need the user's captured REVISE evidence. The hooks
 > are covered by fixture tests and were exercised with real `claude -p` sessions in an
-> isolated scratch project (README); **no real interview-preparation run has used them yet**,
-> and interactive typing was checked only by hand in the Phase 4.0 spike. Hooks are
-> guardrails inside Claude Code, not an OS security boundary, and the transcript check is
-> not proof of identity (§12.5).
-> Not implemented yet: HTML rendering, resume (§7), and revisions of anything other than
-> the plan. Known gaps are listed in §6.3, §8.4, and §12.5.
+> isolated scratch project (README). On 2026-10-13 a real interactive approval was captured
+> and applied on an existing validated run: the first attempt exposed an origin-check defect
+> (interactive prompts carry `origin.kind: human`), which was fixed, and the second was
+> applied. Hooks are guardrails inside Claude Code, not an OS security boundary, and the
+> transcript check is not proof of identity (§12.5).
+> Phase 5 adds the **HTML renderer** (`scripts/render-guide.ps1`, §8.3) and two Skills,
+> `artifact-validator` and `html-guide-builder` (§13). The renderer is covered by fixture
+> tests; **no real run has rendered a guide yet.**
+> Not implemented yet: resume (§7) and revisions of anything other than the plan. Known gaps
+> are listed in §6.3, §8.4, §8.5, and §12.5.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -203,8 +207,7 @@ The coordinator writes the selection and a one-line reason for each agent into
 6. Plan validation (`plan-validation` step, quality-validator) → `validation/plan.json`
 7. Human approval (`approval` step; state machine implemented in Phase 4A, decision capture
    not yet, §8) → `approval.json`
-8. HTML generation (`render` step; its approval check and gate exist, the renderer does not)
-   → `guide.html`
+8. HTML generation (`render` step, `scripts/render-guide.ps1`, §8.3) → `guide.html`
 
 **Parallel:** independent research subagents (one per topic area) may run at the same
 time. They must write to distinct output paths and must not read each other's output.
@@ -260,7 +263,7 @@ runs/<run-id>/
   approval.json              # owner: state.ps1 decide (the applied decision; never evidence by itself)
   approval/history/          # owner: state.ps1 (voided or superseded approval.json files)
   approval/quarantine/       # owner: state.ps1 quarantine-ledger (malformed, unconsumed evidence)
-  guide.html                 # owner: HTML renderer (not built), written only after approval
+  guide.html                 # owner: scripts/render-guide.ps1, written only for a valid approval of the current plan
 ```
 
 ### 5.1 Artifact formats
@@ -570,10 +573,39 @@ entry is not the user's typed prompt.
 
 ### 8.3 Rendering
 
-`start -Step render` is refused unless the approval check above passes. `complete -Step
-render` checks it again and requires `guide.html` to contain
-`<meta name="plan-sha256" content="<approved hash>">`. The renderer itself is not built.
+`scripts/render-guide.ps1 -RunId <id>` is the only writer of `guide.html` (Phase 5). It does
+not decide anything itself; it wraps the `render` step:
+
+1. `state.ps1 start -Step render`: refused unless the approval check above passes, that is,
+   unless the user approved exactly the current plan. A refusal writes nothing and is not
+   an attempt.
+2. It renders `plan.md` as it is on disk into one self-contained HTML file: inline CSS, no
+   scripts, no external resources, a Content-Security-Policy of `default-src 'none'`, and
+   `<meta name="plan-sha256">` set to the hash of the bytes it rendered. It handles the
+   planner's Markdown subset: headings (with section navigation), pipe tables (the
+   schedule), nested lists (exercises, interview questions), fenced code, `inline code`,
+   **bold**, and links. **Every piece of plan text is HTML-escaped**; only `http(s)` URLs
+   become links, and a URL ends at a quote. The file is written atomically.
+3. `state.ps1 complete -Step render`: checks the approval again (a plan or approval that
+   changed meanwhile makes the attempt `stale`), requires the embedded hash to equal the
+   approved hash, then records the guide's hash and snapshot (`versions/render-v<N>.html`).
+   The run becomes `completed`.
+
+A renderer error records a failed attempt (`state.ps1 fail`), so the step is never left
+running. Afterwards the guide is held to its hash like any passed artifact (§6.4). Direct
+writes to `guide.html` stay denied by PreToolUse (§12.2), and a `guide.html` that no render
+attempt produced is an integrity violation (`render-output`). A guide is rendered once per
+approval: a second render of a passed step is refused; a plan change voids the approval and
+the render (§8.1), and a new guide needs a new decision by the user.
 **No HTML is generated without an approval that matches the current plan hash.**
+
+### 8.5 Rendering limitations
+
+- **Markdown subset.** Only the constructs the study planner uses are rendered; anything
+  else (for example images or raw HTML) appears as escaped text, never as markup.
+- **Content is not re-validated.** The guide shows the approved plan as is; plan quality is
+  the plan gate's and the validator's job.
+- **One guide per approval,** in one format. No PDF, themes, or other outputs.
 
 ### 8.4 Limitations
 
@@ -679,9 +711,9 @@ Inside a session, `/mcp` shows the server and its tools.
 ```
 .claude/agents/     subagent definitions              (requirements, 3 research, validator, planner)
 .claude/commands/   /prepare-interview command        (through the user's decision; no HTML)
-.claude/skills/     reusable skills                   (planned)
+.claude/skills/     reusable skills                   (artifact-validator, html-guide-builder; §13)
 .claude/hooks/      guardrail hooks                   (UserPromptSubmit, PreToolUse, PostToolUse; §12)
-scripts/            deterministic helpers             (state.ps1, pin-hooks.ps1)
+scripts/            deterministic helpers             (state.ps1, render-guide.ps1, pin-hooks.ps1)
 tests/              state.ps1 test suite              (run-tests.ps1; approval, hooks tests)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
@@ -747,6 +779,7 @@ For `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`, and `PowerShell`:
 Shell commands (`Bash`, `PowerShell`):
 
 - Always allowed (no decision): `pwsh -NoProfile -File scripts/state.ps1 <verb> ...`,
+  `pwsh -NoProfile -File scripts/render-guide.ps1 ...`,
   `pwsh -NoProfile -File tests/run-tests.ps1 ...`, and `git status|diff|log|show ...`, each
   without shell operators (`;`, `&`, `|`, `>`, `<`, `` ` ``, `$`, parentheses), except `|`
   inside a single-quoted argument.
@@ -781,7 +814,8 @@ cannot undo the tool call.
 Claude Code runs hook scripts from disk on every call (Phase 4.0 spike), so a script changed
 mid-session would run unchecked. Each hook is therefore started by an inline launcher in
 `.claude/settings.json`, generated by `scripts/pin-hooks.ps1`, that checks the SHA-256 of
-`common.ps1`, the three hooks, `approval-policy.json`, and `scripts/state.ps1` first:
+`common.ps1`, the three hooks, `approval-policy.json`, `scripts/state.ps1`, and
+`scripts/render-guide.ps1` first:
 
 - PreToolUse: on a mismatch or crash, every tool call is denied (exit 2).
 - PostToolUse: the failure is reported (exit 2).
@@ -822,3 +856,26 @@ are. PostToolUse was then changed to check read-only first (§12.3).
   edits to `settings.json`, but cannot see edits made outside Claude Code.
 - **24-hour open-run window.** Strict shell mode depends on `updated_at`; a run untouched
   for 24 hours stops restricting the shell.
+- **Line endings of pinned files.** Pins hash exact bytes. The pinned files are committed
+  with LF line endings; a checkout that converts them to CRLF (for example
+  `core.autocrlf=true`, as on the development machine) no longer matches the pins, and that
+  clone's tool calls are denied until `pin-hooks.ps1` is run there.
+- **Pasted prompts are wrapped.** Claude Code may wrap pasted text in markup; such a prompt
+  starts with `<` and is never captured as a decision. Type decision commands, or paste them
+  as a plain single line.
+
+---
+
+## 13. Skills (implemented, Phase 5)
+
+Two project Skills in `.claude/skills/` package reusable procedures. They contain
+instructions only; the deterministic rules stay in `state.ps1`, the hooks, and the renderer,
+so a Skill cannot weaken a check.
+
+| Skill | Used for | Runs |
+|---|---|---|
+| `artifact-validator` | Checking a run's artifacts against the existing gate rules (requirements, research, reports, plan, approval, guide) and their integrity; read-only | `state.ps1 ledger-status` (read-only); `verify` only to record a found violation |
+| `html-guide-builder` | Producing `guide.html` after the user's approval | `state.ps1 ledger-status`, then `scripts/render-guide.ps1` |
+
+The coordinator uses both in Step 17 (`/prepare-interview`). Neither Skill writes artifacts,
+`state.json`, approval files, or `guide.html`.

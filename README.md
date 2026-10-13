@@ -10,7 +10,7 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress (Phase 4B).** `/prepare-interview` runs these steps:
+🚧 **Implementation in progress (Phase 5).** `/prepare-interview` runs these steps:
 
 1. It gathers and confirms your requirements. The `requirements-formalizer` writes
    `requirements.md`, including your **mandatory topics** (your stated gaps and requested
@@ -24,8 +24,18 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
    in the research.
 6. The validator runs the **plan quality gate**.
 
-7. It asks for **your decision** on the validated plan (CLAUDE.md §8), then stops. HTML
-   generation is not implemented yet.
+7. It asks for **your decision** on the validated plan (CLAUDE.md §8).
+8. After your approval, it renders the **HTML study guide** `runs/<run-id>/guide.html`
+   (CLAUDE.md §8.3), using the `artifact-validator` and `html-guide-builder` Skills.
+
+**The guide (Phase 5).** `scripts/render-guide.ps1` turns the approved `plan.md` into one
+self-contained HTML page: the schedule, every topic's theory, exercises, and interview
+questions, revision and mock interviews, and the sources, with section navigation and a
+light/dark stylesheet. It has no scripts and loads nothing external, and every piece of plan
+text is HTML-escaped. It runs only through `state.ps1`'s render step: rendering is refused
+unless you approved exactly the current plan (its SHA-256), the guide embeds that hash, and
+its own hash is recorded so later tampering is detected. Changing the plan voids the approval
+and the guide.
 
 A failed gate re-runs only the agent that owns the problem (at most 3 attempts per
 artifact), and dependent steps are invalidated and regenerated.
@@ -219,7 +229,12 @@ local (`runs/` is git-ignored), so it is not committed.
   invalidated automatically. Research steps are not: a changed `requirements.md` or
   `confirmed-input.md` blocks research instead, and re-running requirements is not
   supported. Resume is not implemented (CLAUDE.md §7).
-- **No HTML yet.** The run stops after your decision.
+- **The guide renders the planner's Markdown subset** (headings, tables, lists, code,
+  bold, links); anything else appears as escaped text. One HTML guide per approval; no PDF
+  or other formats. No real run has rendered a guide yet (fixture tests only).
+- **Pinned files and line endings.** The hook pins hash exact bytes. A clone that checks
+  the pinned files out with CRLF line endings (for example `core.autocrlf=true`) must run
+  `pin-hooks.ps1` once, or its tool calls are denied.
 - **Hooks are guardrails, not an OS security boundary** (CLAUDE.md §12.5). They see only
   Claude Code's own prompts and tool calls. `!` commands, other terminals and editors, and
   sessions started without the project's hooks can write any file you can, including the
@@ -268,7 +283,15 @@ The exit code is 0 when every test passes. Every run works in a fresh directory 
 system temp folder, passed to `state.ps1` with `-RunsRoot`, and deletes it at the end.
 Nothing is written to `runs/`.
 
-- **Phase 4B hook tests (15, `tests/hooks.tests.ps1`):** each hook runs exactly as Claude
+- **Phase 5 render tests (5, `tests/render.tests.ps1`):** an approved plan renders with its
+  schedule, exercises, interview questions, sources, and navigation, and the run completes
+  without changing any other artifact; rendering is refused without an approval (including
+  a model-written `approval.json`), after a revision voided the approval, and after a manual
+  plan edit; hostile plan text (script and image tags, event handlers, `javascript:` and
+  `data:` links, a quote inside a URL) is escaped; the guide's hash is recorded, a second
+  render is refused, direct writes and chained renderer commands are denied, and tampering
+  is detected and restorable.
+- **Phase 4B hook tests (16, `tests/hooks.tests.ps1`):** each hook runs exactly as Claude
   Code runs it (hook-input JSON on stdin). These cover:
   - UserPromptSubmit: an exact typed approval recorded and then applied by `decide` after the
     transcript check; background-agent notifications, agent messages, and prompts that only
@@ -367,17 +390,19 @@ Nothing is written to `runs/`.
   After every operation the tests check that `state.json` parses. After every batch they
   check that no `state.lock` or temp file is left behind.
 
-Last full run (2026-10-13, Phase 4B, Windows 11, PowerShell 7.6, `-Iterations 5`):
+Last full run (2026-10-13, Phase 5, Windows 11, PowerShell 7.6, `-Iterations 5`): 97 tests.
 
-- **89 of 89 tests passed** in about 26 minutes.
+- **95 of 97 passed** in about 26 minutes. The 2 failures were test fixtures, not product
+  code: a PostToolUse test assumed no other run in the shared test directory reported a
+  violation, and the pinning test did not copy the newly pinned `render-guide.ps1`. Both
+  tests were fixed, and all **89 sequential tests then passed** (`-SkipConcurrency`, about
+  23 minutes). The 8 concurrency tests passed in the full run and are unaffected by those
+  test-only changes.
 - **Overlap:** there were 60 concurrent batches. In all 60, every operation overlapped
-  every other one, and start times were spread by 2 ms on average (20 ms at most).
-- **Readers:** unlocked readers parsed `state.json` 8,539 times and saw 0 invalid reads
-  (9 reads hit a transient file-sharing error while opening the file; those are counted
+  every other one, and start times were spread by 2 ms on average (17 ms at most).
+- **Readers:** unlocked readers parsed `state.json` 9,513 times and saw 0 invalid reads
+  (11 reads hit a transient file-sharing error while opening the file; those are counted
   separately and the reader just reads again on its next loop).
-- That run predates the final PostToolUse change (read-only checks, and handling of runs
-  without a plan). Its tests (the PostToolUse and pinning tests, including the 2 tests added
-  with it) were run on their own afterwards: **4 of 4 passed**. The suite now has 91 tests.
 
 The concurrency tests exercise the research steps. The Phase 3A and 3B steps run one at a
 time by design, so they are tested sequentially.
@@ -427,11 +452,11 @@ See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 | Path               | Purpose                                     |
 |--------------------|---------------------------------------------|
 | `.claude/agents/`  | Subagent definitions (requirements, 3 research, validator, planner) |
-| `.claude/commands/`| `/prepare-interview` command (stops at `awaiting_approval`) |
-| `.claude/skills/`  | Reusable skills (planned)                   |
-| `.claude/hooks/`   | Guardrail hooks (planned)                   |
-| `scripts/`         | Deterministic helpers (`state.ps1`)          |
-| `tests/`           | Test suite for `state.ps1` (`run-tests.ps1`) |
+| `.claude/commands/`| `/prepare-interview` command (requirements through the HTML guide) |
+| `.claude/skills/`  | Skills: `artifact-validator`, `html-guide-builder` |
+| `.claude/hooks/`   | Guardrail hooks: UserPromptSubmit, PreToolUse, PostToolUse |
+| `scripts/`         | Deterministic helpers (`state.ps1`, `render-guide.ps1`, `pin-hooks.ps1`) |
+| `tests/`           | Test suite (`run-tests.ps1`): state, approval, hooks, rendering |
 | `artifacts/`       | Shared reference material (planned)         |
 | `runs/`            | Per-run state and outputs; `runs/demo-*/` is committed |
 | `templates/`       | Final HTML templates (planned)              |

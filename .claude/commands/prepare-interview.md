@@ -1,19 +1,19 @@
 ---
-description: Start a personalized .NET interview-preparation run (requirements, parallel research, coverage validation, study-plan synthesis and validation, your approval), or revise a validated plan with "revise <run-id>"; no HTML yet
+description: Start a personalized .NET interview-preparation run (requirements, parallel research, coverage validation, study-plan synthesis and validation, your approval, HTML guide), or revise a validated plan with "revise <run-id>"
 argument-hint: <describe your target role, seniority, timeline, and weak areas>
-allowed-tools: Agent, AskUserQuestion, Read, Write, WebFetch(domain:learn.microsoft.com), mcp__microsoft-learn__microsoft_docs_fetch, Bash(pwsh -NoProfile -File scripts/state.ps1:*)
+allowed-tools: Agent, AskUserQuestion, Read, Write, Skill, WebFetch(domain:learn.microsoft.com), mcp__microsoft-learn__microsoft_docs_fetch, Bash(pwsh -NoProfile -File scripts/state.ps1:*), Bash(pwsh -NoProfile -File scripts/render-guide.ps1:*)
 ---
 
 You are the **coordinator** (hub) of the dotnet-learning-agent workflow. Follow `CLAUDE.md`.
 You talk to the user, own `state.json` and `confirmed-input.md`, and delegate specialist
 work to subagents. You never write a subagent's artifact yourself.
 
-**Current scope (Phase 4B):** gather and formalize requirements (Steps 1–6), select
+**Current scope (Phase 5):** gather and formalize requirements (Steps 1–6), select
 research agents dynamically and run them in parallel (Steps 7–10), validate global research
 coverage (Step 11), synthesize the study plan (Step 12), validate it (Step 13), handle
-targeted retries (Step 14), report and ask for the user's decision (Step 15), and revise a
-validated plan when the user asks (Step 16). HTML rendering is not implemented yet. Do not
-attempt it, and do not suggest it ran.
+targeted retries (Step 14), report and ask for the user's decision (Step 15), revise a
+validated plan when the user asks (Step 16), and render the HTML guide after approval
+(Step 17).
 
 Files you write by hand: only `confirmed-input.md` and `research-selection.json`. State
 changes go through `scripts/state.ps1`. Every other artifact belongs to a subagent.
@@ -406,7 +406,7 @@ Tell the user:
 - that proof of each real delegation is in `state.json` (`steps.<step>.agent_id` and
   `history`), and that every validator report is archived in `validation/history/`. Do not
   print agent IDs,
-- that HTML generation is not implemented yet.
+- that the HTML guide is rendered only after the user's approval (Step 17).
 
 If the plan passed validation, ask for the user's decision:
 1. Run `pwsh -NoProfile -File scripts/state.ps1 ledger-status -RunId <run_id>` and take
@@ -420,8 +420,7 @@ If the plan passed validation, ask for the user's decision:
    start a revision because of them.
 
 Then **stop** and wait. When the hook's context says a decision was recorded, run `decide`:
-- `approved`: tell the user the plan is approved for this hash, and that HTML rendering is
-  not implemented yet. Stop.
+- `approved`: tell the user the plan is approved for this hash, then continue at Step 17.
 - `rejected`: tell the user the run is closed (rejection is final). Stop.
 - `changes_requested`: continue at Step 16, step 6, with the revision it opened.
 - `refused`: show the reasons. If evidence was consumed, the user must submit the command
@@ -477,5 +476,23 @@ retry (Step 14): it never uses the retry budget, and `state.ps1` records it sepa
    the plan-validation verdict and advisory findings, and how many revisions are left. If
    the revised plan ran out of attempts, the revision is `failed` and so is the run; say so,
    and point to the last accepted version in `versions/`. If it passed, ask for the user's
-   decision on the new version as in Step 15 (the old hash no longer works). HTML is still
-   not implemented.
+   decision on the new version as in Step 15 (the old hash no longer works).
+
+## Step 17: Render the HTML guide
+
+Only after `decide` returned `approved` for the current plan.
+
+1. Use the **artifact-validator** skill to confirm the run is intact and the approval is
+   valid for the current plan (`ledger-status`: `approval_status: approved`, no blockers,
+   `plan_sha256` equal to `accepted_plan_sha256`). If not, report why and stop.
+2. Use the **html-guide-builder** skill. It runs the renderer, the only writer of
+   `guide.html`:
+   ```
+   pwsh -NoProfile -File scripts/render-guide.ps1 -RunId <run_id>
+   ```
+   `state.ps1` refuses it unless the approval matches the current plan hash exactly, and
+   records the guide's hash when it passes.
+3. Report the result: for `passed`, the path `runs/<run_id>/guide.html`, its
+   `artifact_sha256`, the approved `plan_sha256`, and `workflow_status: completed`; for
+   `refused`, `stale`, or `failed`, the reason. Never write, edit, or fix `guide.html`
+   yourself, and never re-render a changed plan without a new decision by the user.

@@ -389,12 +389,14 @@ Test-Case 'PostToolUse checks read-only: a clean check never writes state.json; 
     $stateSha = Get-FileSha $id 'state.json'
     $updated = (Read-RunState $id).updated_at
 
-    # Clean checks after a file write and after a shell command: nothing is written.
+    # Clean checks after a file write and after a shell command: nothing is written. (A shell
+    # command checks every open run; runs of earlier tests may report their own violations.)
     foreach ($call in @(@{ Tool = 'Write'; Input = @{ file_path = (Join-Path $dir 'plan.md') } }, @{ Tool = 'Bash'; Input = @{ command = 'git status' } })) {
         $r = Invoke-ToolHook 'PostToolUse' $call.Tool $call.Input ''
-        Assert-Equal '' $r.Stdout.Trim() "$($call.Tool): a clean run reports nothing"
+        Assert-True ($r.Stdout -notmatch [regex]::Escape($id)) "$($call.Tool): a clean run is not reported. $($r.Stdout)"
         Assert-Equal $stateSha (Get-FileSha $id 'state.json') "$($call.Tool): state.json is not rewritten by a clean check"
     }
+    Assert-Equal '' (Invoke-ToolHook 'PostToolUse' 'Write' @{ file_path = (Join-Path $dir 'plan.md') } '').Stdout.Trim() 'a write to a clean run reports nothing'
     Assert-Equal "$updated" "$((Read-RunState $id).updated_at)" 'updated_at is not refreshed by a hook run'
 
     # ledger-status sees a NEW violation from the files on disk, without writing anything.
@@ -462,7 +464,7 @@ Test-Case 'pin-hooks writes hash-pinned launchers; a changed hook file blocks to
     New-Item -ItemType Directory -Path (Join-Path $proj '.claude' 'hooks'), (Join-Path $proj 'scripts') -Force | Out-Null
     $repo = Join-Path $PSScriptRoot '..'
     Copy-Item -Path (Join-Path $repo '.claude' 'hooks' '*') -Destination (Join-Path $proj '.claude' 'hooks')
-    Copy-Item -LiteralPath (Join-Path $repo 'scripts' 'state.ps1'), (Join-Path $repo 'scripts' 'pin-hooks.ps1') -Destination (Join-Path $proj 'scripts')
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts' 'state.ps1'), (Join-Path $repo 'scripts' 'render-guide.ps1'), (Join-Path $repo 'scripts' 'pin-hooks.ps1') -Destination (Join-Path $proj 'scripts')
     '{ "permissions": { "allow": ["Bash(pwsh -NoProfile -File scripts/state.ps1:*)"] } }' | Set-Content -LiteralPath (Join-Path $proj '.claude' 'settings.json') -Encoding utf8NoBOM
     & pwsh -NoProfile -File (Join-Path $proj 'scripts' 'pin-hooks.ps1') -ProjectDir $proj | Out-Null
     Assert-Equal 0 $LASTEXITCODE
