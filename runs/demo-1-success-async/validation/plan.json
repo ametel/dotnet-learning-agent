@@ -1,0 +1,49 @@
+{
+  "report": "plan",
+  "run_id": "20261013-134101-resume-demo-async-ad8d3d",
+  "generated_by": "quality-validator",
+  "verdict": "pass",
+  "mandatory_topics": [
+    {
+      "topic": "async/await in C#",
+      "status": "covered",
+      "evidence": "plan.md ### async/await in C#: theory (mechanics, I/O vs CPU, backend starvation, return types, WhenAll/exceptions/cancellation, ConfigureAwait), 4 hands-on exercises taken from research/dotnet.md, 7 short interview questions plus 1 optional stretch question, a backend /orders/{id} before-and-after example; Schedule sessions 1-5 (theory, practice, interview) and session 6 (revision and mock interview); spaced recaps on Days 3, 5, and 6."
+    }
+  ],
+  "findings": [
+    {
+      "id": "P1",
+      "severity": "advisory",
+      "category": "time_budget",
+      "owner": "study-planner",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/plan.md",
+      "topic": "async/await in C#",
+      "message": "The Time Budget section says sessions 1-5 contain 'roughly 35 minutes of theory, 90 minutes of hands-on exercises, and 25 minutes of interview questions'. The session details add up to 32 min theory, 92 min exercises, 20 min interview questions (Day 3: 10, Day 4: 5, Day 5: 5), and 6 min of recaps. The totals (150 and 180 minutes) are correct; only the breakdown is off, mainly the interview share (20, not 25).",
+      "fix": "Make the Time Budget breakdown match the session details (for example 32 theory, 92 practice, 20 interview, 6 recap), or adjust the sessions to match the stated split."
+    },
+    {
+      "id": "P2",
+      "severity": "advisory",
+      "category": "traceability",
+      "owner": "study-planner",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/plan.md",
+      "topic": "async/await in C#",
+      "message": "research/dotnet.md sizes Exercises 1, 3, and 4 at 30 minutes each and Exercise 2 at 60 minutes over two sessions. The plan schedules them at 20, 20, 15, and 37 minutes without saying it shortened the research estimates. All exercises are still scheduled within the 30-minute session limit, but Exercise 4 (15 min) and Exercise 2 (37 min instead of 60) are tight for a Middle candidate.",
+      "fix": "State under Assumptions that the exercises are shortened from the research estimates to fit the 6 x 30-minute limit, and mark which steps to skip if time runs out (for example, the optional dotnet-counters observation in Exercise 2)."
+    },
+    {
+      "id": "P3",
+      "severity": "advisory",
+      "category": "unsupported_claim",
+      "owner": "dotnet-researcher",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/research/dotnet.md",
+      "topic": "async/await in C#",
+      "message": "The guidance that one scoped EF Core DbContext must not run concurrent operations has no source in research (listed under Gaps and Limitations). The plan copies it faithfully and labels it as unsourced general guidance with no citation, and builds no exercise on it, so this does not block. The claim itself matches widely documented EF Core behavior.",
+      "fix": "In a future research pass, cite the EF Core documentation on DbContext lifetime and thread safety so the plan can link it."
+    }
+  ],
+  "optional_recommendations": [
+    "Source the ValueTask<T> stretch guidance (question 8) from Microsoft Learn so it can be cited rather than labeled unsourced.",
+    "Verify the dotnet-counters System.Runtime counter names used in the optional part of Exercise 2."
+  ]
+}

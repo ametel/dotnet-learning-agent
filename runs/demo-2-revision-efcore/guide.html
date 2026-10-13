@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="plan-sha256" content="cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843">
+<title>Study Plan: Middle+ .NET Backend, EF Core Performance in 5 days (interview in 7 days)</title>
+<style>
+:root { color-scheme: light dark; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --accent: #0969da; --panel: #f6f8fa; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --accent: #4493f8; --panel: #151b23; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main, footer, nav { max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
+header { padding-top: 2rem; border-bottom: 1px solid var(--line); }
+header h1 { margin: 0 0 .5rem; font-size: 1.8rem; line-height: 1.25; }
+.meta { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+.meta code { font-size: .85rem; }
+nav { padding-top: 1rem; }
+nav ul { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+nav a { font-size: .95rem; }
+h2 { margin-top: 2.5rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+h3 { margin-top: 1.75rem; }
+a { color: var(--accent); overflow-wrap: anywhere; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--panel); padding: .1rem .3rem; border-radius: 4px; }
+pre { background: var(--panel); padding: 1rem; overflow-x: auto; border-radius: 6px; }
+pre code { padding: 0; background: none; }
+.table { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .95rem; }
+th, td { border: 1px solid var(--line); padding: .4rem .6rem; text-align: left; vertical-align: top; }
+th { background: var(--panel); }
+li { margin: .2rem 0; }
+footer { margin-top: 3rem; padding-bottom: 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }</style>
+</head>
+<body>
+<header>
+<h1>Study Plan: Middle+ .NET Backend, EF Core Performance in 5 days (interview in 7 days)</h1>
+<p class="meta">Run <code>20261012-193618-middle-backend-efcore-06d058</code> &middot; plan version 2 &middot; 2.5 of 2.5 hours planned &middot; approved as <code>dec-002</code> at 10/13/2026 11:03:14</p>
+</header>
+<nav aria-label="Sections"><ul><li><a href="#summary">Summary</a></li><li><a href="#assumptions">Assumptions</a></li><li><a href="#time-budget">Time Budget</a></li><li><a href="#schedule">Schedule</a></li><li><a href="#topic-plans">Topic Plans</a></li><li><a href="#revision-and-mock-interviews">Revision and Mock Interviews</a></li><li><a href="#sources">Sources</a></li><li><a href="#optional-extensions">Optional Extensions</a></li></ul></nav>
+<main>
+<h2 id="summary">Summary</h2>
+<p>This plan prepares a Middle+ .NET backend developer for a technical interview in about 7 days. It covers only the stated gap, EF Core performance, through the five requested topics: EF Core performance, Query optimization, AsNoTracking, N+1 queries, and Indexing. The schedule uses the full 2.5-hour budget as five study days of exactly 30 minutes, all in the same small console app. AsNoTracking comes on Day 3 so that Day 5 can review it. N+1 queries is split between Day 3 (the N+1 loop and its fixes) and Day 5 (cartesian explosion and split queries). 130 minutes (86.7%) go to the five topics and 20 minutes (13.3%) to spaced revision and a mock interview. The questions are pitched at practical trade-offs and diagnosis rather than definitions, because the role is Middle+.</p>
+<h2 id="assumptions">Assumptions</h2>
+<p>Repeated from *Open Questions and Assumptions* in <code>requirements.md</code>:</p>
+<ul>
+<li><strong>Interview date:</strong> about 7 days after the run date, around 2026-10-19 (assumption 1).</li>
+<li><strong>Study days:</strong> 5 study days before the interview, with 2 slack days for rest or overflow (assumption 2). Overflow must not push the total past 2.5 hours.</li>
+<li><strong>Seniority:</strong> &quot;Middle+&quot;, read as between middle and senior. Expect practical trade-off and diagnosis questions, not architecture leadership (assumption 3). Research leans its questions toward the upper end of Middle+.</li>
+<li><strong>Strengths:</strong> unclear. General .NET backend knowledge is assumed adequate, so nothing outside EF Core performance is scheduled (assumptions 4 and 11).</li>
+<li><strong>Tools:</strong> free resources and a local setup (.NET SDK plus a local database) are acceptable (assumption 5). Research uses SQL Server LocalDB or Docker, and SSMS for execution plans.</li>
+<li><strong>Company and format:</strong> a generic .NET backend technical interview with verbal questions and possibly a short coding or code-review task (assumptions 6 and 7).</li>
+<li><strong>Versions:</strong> latest LTS .NET with the matching EF Core (assumption 8). Research assumes EF Core 10 on .NET 10.</li>
+<li><strong>Database provider:</strong> relational, with SQL Server as the example (assumption 9). <code>IncludeProperties</code>, the <code>[Url] IS NOT NULL</code> filter syntax, SSMS plans, and <code>SET STATISTICS IO</code> are SQL Server-specific. Other providers, such as PostgreSQL <code>EXPLAIN ANALYZE</code>, were not researched.</li>
+<li><strong>Language:</strong> English materials (assumption 10).</li>
+<li><strong>Topic priorities:</strong> all five stated and requested topics are High priority, and the derived support topic is Low (assumption 12). See *Time Budget* for how this turned into time allocations.</li>
+<li><strong>Derived optional topic:</strong> &quot;Inspecting the SQL that EF Core generates&quot; gets no separate session. It is practiced inside the EF Core performance and Query optimization sessions (<code>LogTo</code>, <code>TagWithCallSite</code>, <code>ToQueryString</code>), as the coverage report notes (assumption 13).</li>
+<li><strong>Budget:</strong> 2.5 hours is a hard cap, at most 30 minutes per day (assumption 14).</li></ul>
+<p>Planning assumptions and research gaps:</p>
+<ul>
+<li><strong>Setup time is part of Day 1.</strong> The shared console app (Blog/Post/Contributor model, about 1,000 blogs with about 50 posts each, <code>LogTo(Console.WriteLine, LogLevel.Information)</code>) must be built inside the Day 1 practice block. Keep the seed code minimal. If setup overruns, cut the Day 1 dashboard method to two queries rather than going over 30 minutes.</li>
+<li><strong>The research exercises add up to about 110 minutes at full length</strong> (20 + 25 + 15 + 25 + 25). Research says to pick from them rather than schedule them all in full, so each one is trimmed below. The trimmed parts are listed under *Optional Extensions*.</li>
+<li><strong>N+1 queries is split across two days.</strong> No arrangement of five 30-minute days fits every topic whole while also putting AsNoTracking before the final day and keeping the mock interview on Day 5. The N+1 research exercise already has two separate parts (the N+1 loop, then cartesian explosion), so it is the natural topic to split: part 1 on Day 3, part 2 on Day 5.</li>
+<li><strong>Paging logical reads are not scheduled.</strong> The <code>SET STATISTICS IO</code> comparison of offset and keyset paging from the Query optimization research exercise is left out of every scheduled day and listed under *Optional Extensions*. Day 2 measures paging with <code>Stopwatch</code> only.</li>
+<li><strong>Lazy loading and synchronous I/O (coverage advisory C1):</strong> research says lazy loads are synchronous I/O, but the Learn page it cites does not state this. Use &quot;hidden extra round trips&quot; as the main argument against lazy loading in an API, and treat &quot;synchronous I/O&quot; as a supporting point you cannot cite.</li>
+<li><strong>AsNoTracking example (coverage advisory C2):</strong> the research code example applies <code>AsNoTracking()</code> to a projection that has no entities, where it has no effect. This plan&#39;s AsNoTracking practice uses a query that returns entities, and treats the projection only as the &quot;no AsNoTracking needed&quot; contrast.</li>
+<li><strong>Logical-read numbers and plan-operator names</strong> other than scan and seek in the research indexing example are illustrative. Measure your own values.</li>
+<li><strong>Sources:</strong> all research sources are Microsoft Learn pages, mostly read through search excerpts. There are no non-Microsoft sources, for example on N+1 detection tooling.</li></ul>
+<h2 id="time-budget">Time Budget</h2>
+<ul>
+<li><strong>Budget:</strong> 2.5 hours (150 minutes), confirmed by the user.</li>
+<li><strong>Planned:</strong> 150 minutes = 2.5 hours, across 5 days of exactly 30 minutes.</li>
+<li><strong>Days:</strong><ul>
+<li>Day 1 = row 1 (30 min)</li>
+<li>Day 2 = rows 2–3 (5 + 25 min)</li>
+<li>Day 3 = rows 4–5 (15 + 15 min)</li>
+<li>Day 4 = row 6 (30 min)</li>
+<li>Day 5 = rows 7–8 (15 + 15 min)</li></ul>
+</li></ul>
+<p>Every day falls before the interview, and 2 slack days remain.</p>
+<ul>
+<li><strong>Split per topic:</strong><ul>
+<li>EF Core performance: 30 min (Day 1: setup and diagnosis practice)</li>
+<li>Query optimization: 25 min (Day 2)</li>
+<li>AsNoTracking: 15 min (Day 3)</li>
+<li>N+1 queries: 30 min (15 on Day 3, 15 on Day 5)</li>
+<li>Indexing: 30 min (Day 4)</li>
+<li>Revision: 10 min (5 at the start of Day 2, 5 on Day 5)</li>
+<li>Mock interview: 10 min (Day 5)</li></ul>
+</li>
+<li><strong>Revision and mock share:</strong> 20 of 150 minutes, or 13.3%.</li>
+<li>About 70% of each topic session is hands-on practice, which matches the stated preference for hands-on exercises and short questions.</li></ul>
+<p><strong>How priorities and time allocations were determined:</strong></p>
+<ol>
+<li><strong>Priority.</strong> <code>requirements.md</code> rates all five mandatory topics High (assumption 12): EF Core performance is the user&#39;s only stated gap, and the other four are explicit requests. The user gave no ranking among them, so no topic is dropped or reduced to a brief review. The derived support topic (inspecting generated SQL) is Low and gets no separate session (assumption 13). Nothing outside EF Core performance is scheduled (assumption 4).</li>
+<li><strong>Reserve for revision and the mock first.</strong> 20 of 150 minutes (13.3%) are set aside, within the 10–15% target. That leaves 130 minutes for the five topics.</li>
+<li><strong>Allocate by the research exercise sizes.</strong> Research sizes the exercises at about 20 (EF Core performance), 25 (Query optimization), 15 (AsNoTracking), 25 (N+1 queries), and 25 (Indexing) minutes, about 110 in total. Each topic also needs about 5 minutes of theory and 5 of interview drills, which brings the full total over 130. So each exercise was trimmed toward its research size, with these adjustments:<ul>
+<li><strong>EF Core performance gets 30 minutes</strong> although its exercise is the smallest of the four larger ones, because Day 1 also has to build and seed the shared console app that every later day uses.</li>
+<li><strong>N+1 queries and Indexing get 30 minutes each,</strong> close to their full 25-minute exercises plus theory and questions. Research lists N+1 round trips and missing or unusable indexes among the usual root causes of slow EF data access, and both exercises need a before-and-after measurement to mean anything.</li>
+<li><strong>Query optimization gets 25 minutes.</strong> Its practice is trimmed from 25 to 15 minutes by dropping the SSMS logical-read run for paging. The projection comparison and the <code>Stopwatch</code> paging timing remain.</li>
+<li><strong>AsNoTracking gets 15 minutes,</strong> the smallest share, because its research exercise is already sized at 15 minutes and its ideas overlap with projection (Query optimization) and <code>Include</code> (N+1 queries).</li></ul>
+</li>
+<li><strong>Order the days.</strong> Day 1 (diagnosis) produces the suspects that later days fix. AsNoTracking comes on Day 3, not at the end, so that Day 5 can review it. Indexing keeps a whole day because its SSMS work does not split well, and N+1 queries is split along its two exercise parts (see *Assumptions*).</li></ol>
+<h2 id="schedule">Schedule</h2>
+<div class="table"><table>
+<thead><tr><th>#</th><th>Week</th><th>Topic</th><th>Activities</th><th>Minutes</th><th>Sources</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>1</td><td>EF Core performance</td><td>theory, practice, interview</td><td>30</td><td><a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis">https://learn.microsoft.com/ef/core/performance/performance-diagnosis</a> ; <a href="https://learn.microsoft.com/ef/core/querying/tags">https://learn.microsoft.com/ef/core/querying/tags</a></td></tr>
+<tr><td>2</td><td>1</td><td>Revision: EF Core performance diagnosis questions (start of Day 2)</td><td>revision</td><td>5</td><td><a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis">https://learn.microsoft.com/ef/core/performance/performance-diagnosis</a></td></tr>
+<tr><td>3</td><td>1</td><td>Query optimization</td><td>theory, practice, interview</td><td>25</td><td><a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a> ; <a href="https://learn.microsoft.com/ef/core/querying/pagination">https://learn.microsoft.com/ef/core/querying/pagination</a></td></tr>
+<tr><td>4</td><td>1</td><td>AsNoTracking</td><td>theory, practice, interview</td><td>15</td><td><a href="https://learn.microsoft.com/ef/core/querying/tracking">https://learn.microsoft.com/ef/core/querying/tracking</a> ; <a href="https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries">https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries</a></td></tr>
+<tr><td>5</td><td>1</td><td>N+1 queries</td><td>theory, practice</td><td>15</td><td><a href="https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible">https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible</a> ; <a href="https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies">https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies</a></td></tr>
+<tr><td>6</td><td>1</td><td>Indexing</td><td>theory, practice, interview</td><td>30</td><td><a href="https://learn.microsoft.com/ef/core/modeling/indexes">https://learn.microsoft.com/ef/core/modeling/indexes</a> ; <a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans">https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans</a></td></tr>
+<tr><td>7</td><td>1</td><td>N+1 queries</td><td>practice, interview</td><td>15</td><td><a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries">https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries</a> ; <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally">https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally</a></td></tr>
+<tr><td>8</td><td>1</td><td>Final revision (including AsNoTracking recall) and mock interview (all topics)</td><td>revision, mock</td><td>15</td><td><a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a> ; <a href="https://learn.microsoft.com/ef/core/querying/tracking">https://learn.microsoft.com/ef/core/querying/tracking</a></td></tr>
+</tbody></table></div>
+<h2 id="topic-plans">Topic Plans</h2>
+<h3 id="ef-core-performance">EF Core performance</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> This is the user&#39;s only stated weak area. A Middle+ backend interviewer expects a measure-first diagnosis workflow, not jumping straight to &quot;use Dapper&quot; or &quot;add caching&quot;.</li>
+<li><strong>Theory (5 min, Day 1):</strong><ul>
+<li>Measure before optimizing. Public benchmarks rarely match real latency and data volume. (<a href="https://learn.microsoft.com/ef/core/performance/">Introduction to Performance</a>)</li>
+<li>Diagnosis workflow: (1) command logging at <code>LogLevel.Information</code>, which gives <code>Executed DbCommand (Nms)</code> lines; (2) find the slow command or an unexpected number of round trips; (3) map SQL back to code with <code>TagWith</code> / <code>TagWithCallSite</code>; (4) analyze the execution plan. (<a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis">Performance Diagnosis</a>, <a href="https://learn.microsoft.com/ef/core/querying/tags">Query tags</a>)</li>
+<li>Usual root causes: a missing or unusable index, loading too much data, N+1 round trips, cartesian explosion, and tracking overhead on large read-only results.</li>
+<li>Keep command logging to short diagnostic windows or pre-production. Left on in production, it slows the app and fills disks. (<a href="https://learn.microsoft.com/ef/core/logging-events-diagnostics/simple-logging#filtering">Simple Logging: filtering</a>)</li></ul>
+</li>
+<li><strong>Practice (20 min, Day 1):</strong><ul>
+<li>Set up the shared console app: EF Core 10, SQL Server LocalDB or Docker, a <code>Blog</code>/<code>Post</code>/<code>Contributor</code> model, a seed of about 1,000 blogs &#215; 50 posts, and <code>LogTo(Console.WriteLine, LogLevel.Information)</code>.</li>
+<li>Write <code>GetDashboard()</code> with 3 or 4 queries, including one N+1 loop and one unbounded <code>ToList</code>. Tag each with <code>TagWithCallSite()</code>.</li>
+<li><strong>Observe:</strong> the number of <code>Executed DbCommand</code> lines, the slowest duration, and the source line each one came from. Write down your top 2 suspects before fixing anything. You will fix the unbounded <code>ToList</code> on Day 2 and the N+1 loop on Day 3.</li></ul>
+</li>
+<li><strong>Interview questions (5 min, Day 1):</strong><ol>
+<li>*An endpoint got slow in production. How do you find out whether EF is the cause?* Strong answer covers: brief command logging or pre-production capture, per-command durations *and* command counts, <code>TagWith</code> to map SQL to code, then the execution plan, all before changing code.</li>
+<li>*A query is fast locally and slow in production. Why?* Strong answer covers: data volume changes the plan (scan versus seek), network latency multiplies round trips, and unbounded result sets.</li>
+<li>*When would you consider leaving LINQ for raw SQL?* Strong answer covers: only after measuring and after LINQ-level fixes (projection, indexes, split queries) have been tried.</li></ol>
+</li>
+<li><strong>Sources:</strong> <a href="https://learn.microsoft.com/ef/core/performance/">https://learn.microsoft.com/ef/core/performance/</a>, <a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis">https://learn.microsoft.com/ef/core/performance/performance-diagnosis</a>, <a href="https://learn.microsoft.com/ef/core/querying/tags">https://learn.microsoft.com/ef/core/querying/tags</a>, <a href="https://learn.microsoft.com/ef/core/logging-events-diagnostics/simple-logging#filtering">https://learn.microsoft.com/ef/core/logging-events-diagnostics/simple-logging#filtering</a></li></ul>
+<h3 id="query-optimization">Query optimization</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> Projection, server-side filtering, and paging are the everyday fixes a Middle+ developer is expected to apply and explain, including how to check the generated SQL.</li>
+<li><strong>Theory (5 min, Day 2, after the opening revision):</strong><ul>
+<li><strong>Projection:</strong> <code>Select</code> only the needed columns. Non-entity projections are not tracked, but you cannot <code>SaveChanges</code> on them. (<a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">Efficient Querying</a>)</li>
+<li><strong>Sargable filters:</strong> keep <code>Where</code> on <code>IQueryable</code>. On SQL Server, <code>StartsWith</code> can use an index and <code>EndsWith</code> cannot. Wrapping the column (<code>ToLower()</code>, arithmetic, explicit <code>Collate</code>) generally prevents index use. The fix for case-insensitive search is the column collation. (<a href="https://learn.microsoft.com/ef/core/miscellaneous/collations-and-case-sensitivity#explicit-collation-in-a-query">Collations and Case Sensitivity</a>)</li>
+<li><strong>Bound results</strong> with <code>Take</code>.</li>
+<li><strong>Pagination:</strong> offset (<code>Skip/Take</code>) processes every skipped row and drifts under concurrent writes. Keyset (<code>Where(Id &gt; lastId).OrderBy(Id).Take(n)</code>) is cheap with a matching index but has no random page jumps. The ordering must be unique. (<a href="https://learn.microsoft.com/ef/core/querying/pagination">Pagination</a>)</li>
+<li><strong>Inspect SQL:</strong> <code>ToQueryString()</code> shows the SQL without running it. (<a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-5.0/whatsnew#simple-logging-and-improved-diagnostics">What&#39;s New in EF Core 5.0</a>)</li></ul>
+</li>
+<li><strong>Practice (15 min, Day 2; trimmed from the 25-minute research exercise):</strong><ul>
+<li>Compare <code>ctx.Posts.ToListAsync()</code> with <code>Select(p =&gt; new { p.PostId, p.Title })</code>, and print <code>ToQueryString()</code> for both. Apply the projection and a <code>Take</code> to the unbounded <code>ToList</code> suspect from your Day 1 <code>GetDashboard()</code>.</li>
+<li>Fetch page 2,000 with <code>Skip/Take</code>, then with keyset <code>Where(PostId &gt; lastId)</code>, and time both with <code>Stopwatch</code>. The SSMS <code>SET STATISTICS IO</code> run for paging is not part of the scheduled plan. It is listed under *Optional Extensions*.</li>
+<li><strong>Observe:</strong> the column list in each SQL statement, and how elapsed time grows with the page number for offset paging but stays flat for keyset paging.</li></ul>
+</li>
+<li><strong>Interview questions (5 min, Day 2):</strong><ol>
+<li>*What&#39;s wrong with <code>ctx.Posts.ToList().Where(p =&gt; p.Title.Contains(x))</code>?* Strong answer covers: it loads the whole table and filters on the client. Keep the query as <code>IQueryable</code> until the end.</li>
+<li>*Offset versus keyset pagination: trade-offs?* Strong answer covers: OFFSET cost grows with page number and pages drift under writes. Keyset is cheap with an index but has no random access. Ordering must be unique.</li>
+<li>*Why might <code>Where(p =&gt; p.Email.ToLower() == x)</code> be slow?* Strong answer covers: a function on the column is not sargable and blocks index use. Use the right column collation.</li></ol>
+</li>
+<li><strong>Sources:</strong> <a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a>, <a href="https://learn.microsoft.com/ef/core/querying/pagination">https://learn.microsoft.com/ef/core/querying/pagination</a>, <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-5.0/whatsnew#simple-logging-and-improved-diagnostics">https://learn.microsoft.com/ef/core/what-is-new/ef-core-5.0/whatsnew#simple-logging-and-improved-diagnostics</a>, <a href="https://learn.microsoft.com/ef/core/miscellaneous/collations-and-case-sensitivity#explicit-collation-in-a-query">https://learn.microsoft.com/ef/core/miscellaneous/collations-and-case-sensitivity#explicit-collation-in-a-query</a></li></ul>
+<h3 id="asnotracking">AsNoTracking</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> &quot;When do you use AsNoTracking?&quot; is a near-certain question. At Middle+ level the strong answer goes beyond &quot;it&#39;s faster&quot; to identity resolution and its trade-offs. It comes on Day 3 so that Day 5 can review it.</li>
+<li><strong>Theory (3 min, Day 3):</strong><ul>
+<li>Entity queries are tracked by default: snapshots, identity resolution, and navigation fix-up, which is what lets <code>SaveChanges</code> detect edits. <code>AsNoTracking()</code> skips this and is the right default for read-only paths. The context-wide default is <code>UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking)</code>, with <code>AsTracking()</code> per query. (<a href="https://learn.microsoft.com/ef/core/querying/tracking">Tracking vs. No-Tracking Queries</a>)</li>
+<li>No-tracking does <strong>no identity resolution</strong>, so a shared principal in an <code>Include</code> produces duplicate instances. <code>AsNoTrackingWithIdentityResolution()</code> deduplicates. A tracking query can be cheaper when it reuses instances that are already tracked. (<a href="https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries">Identity Resolution</a>)</li>
+<li>Projections without entity instances are untracked anyway, so <code>AsNoTracking()</code> adds nothing there. You saw such projections on Day 2. <code>DetectChanges</code> becomes a bottleneck only with thousands of tracked entities. (<a href="https://learn.microsoft.com/ef/core/change-tracking/change-detection#snapshot-change-tracking">Change Detection</a>)</li></ul>
+</li>
+<li><strong>Practice (8 min, Day 3; trimmed from the 15-minute research exercise):</strong><ul>
+<li>Load the 50,000 seeded posts as <strong>entities</strong> (<code>ctx.Posts.ToListAsync()</code>) with and without <code>AsNoTracking()</code>. Record time, <code>GC.GetTotalAllocatedBytes()</code>, and <code>ctx.ChangeTracker.Entries().Count()</code>.</li>
+<li>Run <code>Include(p =&gt; p.Blog)</code> with <code>AsNoTracking()</code> and check with <code>ReferenceEquals</code> whether two posts of the same blog share a <code>Blog</code> instance. Repeat with <code>AsNoTrackingWithIdentityResolution()</code>.</li>
+<li><strong>Observe:</strong> tracked-entry count, time, allocations, and duplicate versus shared instances. Write the numbers down, because the Day 5 revision uses them.</li></ul>
+</li>
+<li><strong>Interview questions (4 min, Day 3):</strong><ol>
+<li>*When would you use AsNoTracking, and when not?* Strong answer covers: read-only paths yes, entities you will modify no. Mention the context-wide default and <code>AsTracking</code>.</li>
+<li>*Can a no-tracking query be slower or behave differently?* Strong answer covers: no identity resolution gives duplicate instances, and <code>AsNoTrackingWithIdentityResolution</code> fixes that. Tracking can reuse instances that are already tracked.</li>
+<li>*Is a <code>Select</code> into a DTO tracked?* Strong answer covers: no, unless the projection contains entity instances.</li></ol>
+</li>
+<li><strong>Reviewed later:</strong> Day 5 revision (row 8) and the Day 5 mock interview.</li>
+<li><strong>Sources:</strong> <a href="https://learn.microsoft.com/ef/core/querying/tracking">https://learn.microsoft.com/ef/core/querying/tracking</a>, <a href="https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries">https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries</a>, <a href="https://learn.microsoft.com/ef/core/change-tracking/change-detection#snapshot-change-tracking">https://learn.microsoft.com/ef/core/change-tracking/change-detection#snapshot-change-tracking</a></li></ul>
+<h3 id="n-1-queries">N+1 queries</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> N+1 is the most common hidden EF performance bug and a frequent code-review interview task. Middle+ candidates are expected to detect it from logs and to know the trade-offs of each fix.</li>
+<li><strong>Split across two days:</strong> part 1 (Day 3, row 5) covers the N+1 loop and its fixes. Part 2 (Day 5, row 7) covers cartesian explosion, split queries, and the interview questions.</li>
+<li><strong>Theory (5 min, Day 3):</strong><ul>
+<li>N+1: one query loads N parents, then navigation access in a loop adds one query per parent. Lazy loading hides this, and the docs recommend avoiding it. Lazy loading is opt-in: the Proxies package, <code>UseLazyLoadingProxies()</code>, and <code>virtual</code> navigations. Since EF8 it also works on no-tracking entities while their context is alive. (<a href="https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies">Lazy Loading</a>, <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#enhancements-to-lazy-loading">What&#39;s New in EF Core 8</a>)</li>
+<li>Fixes: <code>Include</code>/<code>ThenInclude</code>, filtered include, or better, a projection that loads related data in one query. (<a href="https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible">Efficient Querying: load related entities eagerly</a>)</li>
+<li>Preview for Day 5: cartesian explosion. <code>Include</code> on two sibling collections returns the cross product. <code>AsSplitQuery()</code> sends one query per collection, at the cost of extra round trips, no cross-query consistency without a transaction, and buffering. EF warns when multiple collections are loaded and no split mode is configured. (<a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries">Single vs. Split Queries</a>, <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally">Enabling split queries globally</a>)</li>
+<li>Split queries with <code>Skip/Take</code> need a unique ordering. EF Core 10 fixed inconsistent ordering in split-query subqueries. (<a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#linq-and-sql-translation">What&#39;s New in EF Core 10</a>)</li></ul>
+</li>
+<li><strong>Practice, part 1 (10 min, Day 3):</strong><ul>
+<li>Turn on <code>UseLazyLoadingProxies()</code>, loop over blogs → posts (limit to the first 100 blogs to save time), and count the logged commands. Fix it with a projection, then with <code>Include</code>.</li>
+<li>Apply the projection fix to the N+1 suspect from your Day 1 <code>GetDashboard()</code>.</li>
+<li><strong>Observe:</strong> commands per run (N+1 versus 1) and total time.</li></ul>
+</li>
+<li><strong>Practice, part 2 (10 min, Day 5):</strong><ul>
+<li><code>Include</code> both <code>Posts</code> and <code>Contributors</code>, and note the row count and the multiple-collection warning. Add <code>AsSplitQuery()</code> and compare.</li>
+<li><strong>Observe:</strong> commands per run (1 versus 2 or 3), rows from the single JOIN versus the split queries, and total time.</li></ul>
+</li>
+<li><strong>Interview questions (5 min, Day 5):</strong><ol>
+<li>*Explain N+1 and how you&#39;d spot it.* Strong answer covers: navigation access per parent in a loop, logs showing N similar commands, and lazy loading hiding it.</li>
+<li>*What is cartesian explosion, and how do split queries help? What do they cost?* Strong answer covers: sibling collection JOINs multiply rows. A split query runs one query per collection. Costs: extra round trips, no cross-query consistency without a transaction, buffering.</li>
+<li>*Would you enable lazy loading in an ASP.NET Core API?* Strong answer covers: generally no, because of hidden round trips. Prefer explicit eager loading or projections. (See the C1 caveat under *Assumptions* about &quot;synchronous I/O&quot;.)</li></ol>
+</li>
+<li><strong>Sources:</strong> <a href="https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible">https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible</a>, <a href="https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies">https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies</a>, <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries">https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries</a>, <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally">https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally</a>, <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#linq-and-sql-translation">https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#linq-and-sql-translation</a>, <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#enhancements-to-lazy-loading">https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#enhancements-to-lazy-loading</a></li></ul>
+<h3 id="indexing">Indexing</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> Many EF performance problems are really index problems. Middle+ candidates should define indexes in the EF model and prove that one helps with a plan, not by guessing.</li>
+<li><strong>Theory (5 min, Day 4):</strong><ul>
+<li>Define indexes with <code>[Index(nameof(Url))]</code> or <code>HasIndex(...)</code>: composite, <code>IsUnique()</code>, <code>IsDescending(...)</code>, filtered with <code>HasFilter(...)</code>, and covering via <code>IncludeProperties(...)</code> (SQL Server). EF indexes foreign keys by convention. Indexes are applied through migrations. (<a href="https://learn.microsoft.com/ef/core/modeling/indexes">Indexes</a>, <a href="https://learn.microsoft.com/ef/core/modeling/indexes#index-filter">Index filter and included columns</a>)</li>
+<li>Column order matters: (A, B) helps filters on A, or on A and B, but not on B alone. Match the sort order to the <code>ORDER BY</code>.</li>
+<li>Every index slows writes and uses storage. Index measured hot queries only. (<a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">Efficient Querying</a>)</li>
+<li>Read plans in SSMS with *Include Actual Execution Plan*: scan versus seek, estimated versus actual rows. Pair this with <code>SET STATISTICS IO ON</code> logical reads. (<a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans">Inspecting query execution plans</a>, <a href="https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17">Display an actual execution plan</a>, <a href="https://learn.microsoft.com/sql/t-sql/statements/set-statistics-io-transact-sql?view=sql-server-ver17">SET STATISTICS IO</a>)</li></ul>
+</li>
+<li><strong>Practice (20 min, Day 4; the `EndsWith` bonus is optional):</strong><ul>
+<li>Take the logged SQL for <code>Posts.Where(p =&gt; p.BlogId == x &amp;&amp; p.PublishedOn &gt; d).OrderBy(p =&gt; p.PublishedOn).Select(p =&gt; new { p.Title, p.PublishedOn })</code>. Run it in SSMS with the actual plan and <code>SET STATISTICS IO ON</code>.</li>
+<li>Add <code>HasIndex(p =&gt; new { p.BlogId, p.PublishedOn }).IncludeProperties(p =&gt; p.Title)</code> through a migration, and rerun.</li>
+<li><strong>Observe:</strong> the scan-to-seek change, the drop in logical reads, and estimated versus actual rows. Use logical reads, not warm-cache elapsed time, as the evidence.</li></ul>
+</li>
+<li><strong>Interview questions (5 min, Day 4):</strong><ol>
+<li>*You have an index on (LastName, FirstName). Which queries benefit?* Strong answer covers: filters on LastName or on both, not FirstName alone.</li>
+<li>*What is a covering index, and how do you define one in EF Core?* Strong answer covers: every column the query uses is in the index, so the table is not read. <code>HasIndex(...).IncludeProperties(...)</code> on SQL Server.</li>
+<li>*How do you prove an index helped?* Strong answer covers: the actual plan (seek versus scan, estimated versus actual rows) plus <code>SET STATISTICS IO</code> logical reads, before and after, on realistic data.</li>
+<li>*Why not index every column?* Strong answer covers: write overhead and storage, filtered indexes for subsets, and indexing only measured hot queries.</li></ol>
+</li>
+<li><strong>Sources:</strong> <a href="https://learn.microsoft.com/ef/core/modeling/indexes">https://learn.microsoft.com/ef/core/modeling/indexes</a>, <a href="https://learn.microsoft.com/ef/core/modeling/indexes#index-filter">https://learn.microsoft.com/ef/core/modeling/indexes#index-filter</a>, <a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a>, <a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans">https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans</a>, <a href="https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17">https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17</a>, <a href="https://learn.microsoft.com/sql/t-sql/statements/set-statistics-io-transact-sql?view=sql-server-ver17">https://learn.microsoft.com/sql/t-sql/statements/set-statistics-io-transact-sql?view=sql-server-ver17</a></li></ul>
+<h2 id="revision-and-mock-interviews">Revision and Mock Interviews</h2>
+<ul>
+<li><strong>Day 2 opening revision (5 min, row 2):</strong> This is the first block of Day 2, before you start Query optimization. Answer two Day 1 questions out loud from memory, without notes:<ul>
+<li>&quot;An endpoint got slow in production. How do you find out whether EF is the cause?&quot;</li>
+<li>&quot;Why shouldn&#39;t you leave EF command logging at Information level in production?&quot; (Strong answer: overhead and log volume. Use short windows, sampling, or pre-production capture.)</li></ul>
+</li></ul>
+<p>Check your answers against your Day 1 log notes.</p>
+<ul>
+<li><strong>Day 5 revision (5 min, row 8, after N+1 part 2):</strong><ul>
+<li>First, answer two AsNoTracking questions from Day 3 aloud without notes: *When would you use AsNoTracking, and when not?* and *Is a <code>Select</code> into a DTO tracked?* Check them against your Day 3 tracked-entry counts and <code>ReferenceEquals</code> results.</li>
+<li>Then reread your &quot;Observe&quot; notes from Days 1–5: command counts, offset versus keyset timings, tracked-entry counts and allocations, N+1 versus split-query command counts, and logical reads before and after the index.</li>
+<li>Pick one measured number per topic to quote in the interview.</li></ul>
+</li>
+<li><strong>Day 5 mock interview (10 min, row 8):</strong> Answer one question per topic aloud, about 2 minutes each, timed. Use your own measurements as evidence.<ol>
+<li>EF Core performance: *A query is fast locally and slow in production. Why?*</li>
+<li>Query optimization: *Offset versus keyset pagination: trade-offs?*</li>
+<li>AsNoTracking: *Can a no-tracking query be slower or behave differently?*</li>
+<li>N+1 queries: *Include versus projection for related data?* (Strong answer: <code>Include</code> loads full entities, tracked by default. A projection loads only the needed columns in one query and is better for read models.)</li>
+<li>Indexing: *How do you prove an index helped?*</li></ol>
+<ul>
+<li>Spare question for a code-review style finish: *What&#39;s wrong with <code>ctx.Posts.ToList().Where(p =&gt; p.Title.Contains(x))</code>?*</li></ul>
+</li>
+<li>During the 2 slack days, re-ask any mock question you answered weakly. This is optional and not part of the scheduled budget.</li></ul>
+<h2 id="sources">Sources</h2>
+<ul>
+<li>Introduction to Performance (EF Core): <a href="https://learn.microsoft.com/ef/core/performance/">https://learn.microsoft.com/ef/core/performance/</a></li>
+<li>Performance Diagnosis (EF Core): <a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis">https://learn.microsoft.com/ef/core/performance/performance-diagnosis</a></li>
+<li>Performance Diagnosis: inspecting query execution plans: <a href="https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans">https://learn.microsoft.com/ef/core/performance/performance-diagnosis#inspecting-query-execution-plans</a></li>
+<li>Efficient Querying (EF Core): <a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a></li>
+<li>Efficient Querying: load related entities eagerly: <a href="https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible">https://learn.microsoft.com/ef/core/performance/efficient-querying#load-related-entities-eagerly-when-possible</a></li>
+<li>Pagination (EF Core): <a href="https://learn.microsoft.com/ef/core/querying/pagination">https://learn.microsoft.com/ef/core/querying/pagination</a></li>
+<li>Query tags (EF Core): <a href="https://learn.microsoft.com/ef/core/querying/tags">https://learn.microsoft.com/ef/core/querying/tags</a></li>
+<li>Simple Logging: filtering: <a href="https://learn.microsoft.com/ef/core/logging-events-diagnostics/simple-logging#filtering">https://learn.microsoft.com/ef/core/logging-events-diagnostics/simple-logging#filtering</a></li>
+<li>What&#39;s New in EF Core 5.0: simple logging and ToQueryString: <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-5.0/whatsnew#simple-logging-and-improved-diagnostics">https://learn.microsoft.com/ef/core/what-is-new/ef-core-5.0/whatsnew#simple-logging-and-improved-diagnostics</a></li>
+<li>Collations and Case Sensitivity: <a href="https://learn.microsoft.com/ef/core/miscellaneous/collations-and-case-sensitivity#explicit-collation-in-a-query">https://learn.microsoft.com/ef/core/miscellaneous/collations-and-case-sensitivity#explicit-collation-in-a-query</a></li>
+<li>Tracking vs. No-Tracking Queries: <a href="https://learn.microsoft.com/ef/core/querying/tracking">https://learn.microsoft.com/ef/core/querying/tracking</a></li>
+<li>Identity Resolution in EF Core: <a href="https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries">https://learn.microsoft.com/ef/core/change-tracking/identity-resolution#identity-resolution-and-queries</a></li>
+<li>Change Detection and Notifications: <a href="https://learn.microsoft.com/ef/core/change-tracking/change-detection#snapshot-change-tracking">https://learn.microsoft.com/ef/core/change-tracking/change-detection#snapshot-change-tracking</a></li>
+<li>Lazy Loading of Related Data: <a href="https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies">https://learn.microsoft.com/ef/core/querying/related-data/lazy#lazy-loading-with-proxies</a></li>
+<li>Single vs. Split Queries: <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries">https://learn.microsoft.com/ef/core/querying/single-split-queries#performance-issues-with-single-queries</a></li>
+<li>Single vs. Split Queries: enabling globally: <a href="https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally">https://learn.microsoft.com/ef/core/querying/single-split-queries#enabling-split-queries-globally</a></li>
+<li>What&#39;s New in EF Core 10: split query ordering: <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#linq-and-sql-translation">https://learn.microsoft.com/ef/core/what-is-new/ef-core-10.0/whatsnew#linq-and-sql-translation</a></li>
+<li>What&#39;s New in EF Core 8: lazy-loading enhancements: <a href="https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#enhancements-to-lazy-loading">https://learn.microsoft.com/ef/core/what-is-new/ef-core-8.0/whatsnew#enhancements-to-lazy-loading</a></li>
+<li>Indexes (EF Core modeling): <a href="https://learn.microsoft.com/ef/core/modeling/indexes">https://learn.microsoft.com/ef/core/modeling/indexes</a></li>
+<li>Indexes: index filter and included columns: <a href="https://learn.microsoft.com/ef/core/modeling/indexes#index-filter">https://learn.microsoft.com/ef/core/modeling/indexes#index-filter</a></li>
+<li>Display an actual execution plan (SQL Server): <a href="https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17">https://learn.microsoft.com/sql/relational-databases/performance/display-an-actual-execution-plan?view=sql-server-ver17</a></li>
+<li>SET STATISTICS IO (Transact-SQL): <a href="https://learn.microsoft.com/sql/t-sql/statements/set-statistics-io-transact-sql?view=sql-server-ver17">https://learn.microsoft.com/sql/t-sql/statements/set-statistics-io-transact-sql?view=sql-server-ver17</a></li></ul>
+<h2 id="optional-extensions">Optional Extensions</h2>
+<p>None of these is scheduled, because the 2.5-hour budget is fully used.</p>
+<ul>
+<li><strong>Trimmed exercise parts:</strong><ul>
+<li>The <code>SET STATISTICS IO</code> run for offset versus keyset paging (Query optimization). If you try it on a slack day, SSMS will already be set up from Day 4.</li>
+<li>The full 50,000-row lazy-loading loop (N+1 queries).</li>
+<li>The <code>Title.EndsWith(...)</code> bonus that shows the index being ignored (Indexing).</li>
+<li>The extra <code>AsNoTracking</code> timing repeats.</li></ul>
+</li>
+<li><strong>Inspecting generated SQL (derived optional topic):</strong> already practiced through <code>LogTo</code>, <code>TagWithCallSite</code>, and <code>ToQueryString</code>. No separate session is needed.</li>
+<li><strong>Buffering versus streaming (`ToListAsync` versus `AsAsyncEnumerable`):</strong> suggested in the coverage report as a Middle+ talking point under Query optimization. The research artifact contains no findings on it, so this plan gives no content. Look it up in Efficient Querying (<a href="https://learn.microsoft.com/ef/core/performance/efficient-querying">https://learn.microsoft.com/ef/core/performance/efficient-querying</a>) if time allows.</li>
+<li><strong>`DetectChanges` question:</strong> *What is DetectChanges, and when would you disable it?* Strong answer covers: snapshot comparison on <code>SaveChanges</code>/<code>Entries</code>. Disable it only when profiling shows a cost with thousands of tracked entities, and restore it in a <code>finally</code>.</li>
+<li><strong>Other providers:</strong> PostgreSQL plan reading (<code>EXPLAIN ANALYZE</code>) was not researched. Add it only if the target company turns out to use a database other than SQL Server.</li></ul>
+</main>
+<footer>
+<p>Rendered from <code>plan.md</code> (SHA-256 <code>cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843</code>), the plan version the user approved. Sources are the ones cited in the validated research.</p>
+</footer>
+</body>
+</html>

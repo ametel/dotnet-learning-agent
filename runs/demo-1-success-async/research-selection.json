@@ -1,0 +1,16 @@
+{
+  "selected": [
+    {
+      "agent": "dotnet-researcher",
+      "topics": ["async/await in C#: how it works and how to use it correctly in .NET backend code"],
+      "reason": "The user's only stated knowledge gap is async/await in C#."
+    }
+  ],
+  "not_selected": [
+    { "agent": "data-researcher", "reason": "The user stated no EF Core, SQL, or data-access gap." },
+    { "agent": "architecture-researcher", "reason": "The user stated no system design or architecture gap." }
+  ],
+  "coverage": [
+    { "mandatory_topic": "async/await in C#", "research_topics": ["async/await in C#: how it works and how to use it correctly in .NET backend code"] }
+  ]
+}

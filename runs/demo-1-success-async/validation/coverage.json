@@ -1,0 +1,39 @@
+{
+  "report": "coverage",
+  "run_id": "20261013-134101-resume-demo-async-ad8d3d",
+  "generated_by": "quality-validator",
+  "verdict": "pass",
+  "mandatory_topics": [
+    {
+      "topic": "async/await in C#",
+      "status": "covered",
+      "evidence": "research/dotnet.md ### async/await in C#: how it works and how to use it correctly in .NET backend code: mechanics (state machine, continuations, no thread creation), I/O- vs CPU-bound work, thread-pool starvation, return types and async void, WhenAll/exceptions/cancellation, ConfigureAwait and deadlocks; 4 pitfalls; a backend before/after controller example; 8 interview questions with expected answers; 4 hands-on exercises sized to 30-minute sessions; pitched at Middle level as requirements.md states; 10 sources, 8 on learn.microsoft.com."
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "severity": "advisory",
+      "category": "unsupported_claim",
+      "owner": "dotnet-researcher",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/research/dotnet.md",
+      "topic": "async/await in C#",
+      "message": "The pitfall and the example note that one EF Core DbContext must not run concurrent operations carry no citation. The artifact itself discloses this under Gaps and Limitations. The claim matches established EF Core guidance and is peripheral to the topic, so it is not blocking, but it is part of the backend example the plan is likely to reuse.",
+      "fix": "Cite the EF Core documentation on DbContext threading (DbContext lifetime, configuration, and initialization page, section on avoiding DbContext threading issues), or have the plan present the note as general guidance without attributing it to a source."
+    },
+    {
+      "id": "C2",
+      "severity": "advisory",
+      "category": "unsupported_claim",
+      "owner": "dotnet-researcher",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/research/dotnet.md",
+      "topic": "async/await in C#",
+      "message": "The ValueTask guidance in stretch interview question 8 (use on hot paths that often complete synchronously; await only once) rests on a summarized WebFetch extract of AsyncGuidance and general knowledge, not on a Microsoft Learn page, as the artifact discloses. It is a stretch item, so not blocking.",
+      "fix": "Optionally cite the ValueTask<TResult> API documentation on Microsoft Learn, or keep the question marked as stretch and unsourced."
+    }
+  ],
+  "optional_recommendations": [
+    "Exercise 2 (thread-pool starvation) takes 60 minutes over two sessions; with 4 exercises totaling 150 minutes, the planner has 30 minutes left of the 3-hour budget for theory and interview-question review, which it should account for.",
+    "Exercise 2's dotnet-counters counter names were not verified (disclosed in Gaps); the plan should keep them as optional observation aids."
+  ]
+}

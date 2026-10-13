@@ -1,0 +1,517 @@
+{
+  "schema_version": 2,
+  "run_id": "20261012-193618-middle-backend-efcore-06d058",
+  "workflow_status": "completed",
+  "current_step": null,
+  "created_at": "2026-10-12T19:36:18Z",
+  "updated_at": "2026-10-13T12:29:32Z",
+  "inputs": {
+    "confirmed_input": "runs/20261012-193618-middle-backend-efcore-06d058/confirmed-input.md"
+  },
+  "research": {
+    "selected_at": "2026-10-12T19:37:26Z",
+    "selection_file": "runs/20261012-193618-middle-backend-efcore-06d058/research-selection.json",
+    "selection_sha256": "86d68a2bb814082894877f25935f5682468721464390df37f7551648286af8ef",
+    "selected_agents": [
+      {
+        "agent": "data-researcher",
+        "area": "data",
+        "step": "research-data",
+        "topics": [
+          "EF Core performance: diagnosing and fixing slow data access",
+          "EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL",
+          "AsNoTracking and change tracking costs in EF Core",
+          "N+1 queries in EF Core: lazy loading, Include, and split queries",
+          "Database indexing for EF Core queries: defining indexes and reading query plans"
+        ],
+        "reason": "The user's only stated gap is EF Core performance, and they explicitly requested query optimization, AsNoTracking, N+1 queries and indexing.",
+        "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/research/data.md"
+      }
+    ],
+    "not_selected": [
+      {
+        "agent": "dotnet-researcher",
+        "reason": "The user reports no C#, runtime or ASP.NET Core gap and requested no topic in that area."
+      },
+      {
+        "agent": "architecture-researcher",
+        "reason": "The user requested no system design or architecture topic; EF Core performance is their only weak area."
+      }
+    ],
+    "coverage": [
+      {
+        "mandatory_topic": "EF Core performance",
+        "research_topics": [
+          "EF Core performance: diagnosing and fixing slow data access"
+        ]
+      },
+      {
+        "mandatory_topic": "Query optimization",
+        "research_topics": [
+          "EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL"
+        ]
+      },
+      {
+        "mandatory_topic": "AsNoTracking",
+        "research_topics": [
+          "AsNoTracking and change tracking costs in EF Core"
+        ]
+      },
+      {
+        "mandatory_topic": "N+1 queries",
+        "research_topics": [
+          "N+1 queries in EF Core: lazy loading, Include, and split queries"
+        ]
+      },
+      {
+        "mandatory_topic": "Indexing",
+        "research_topics": [
+          "Database indexing for EF Core queries: defining indexes and reading query plans"
+        ]
+      }
+    ],
+    "topic_owner": {
+      "EF Core performance: diagnosing and fixing slow data access": "data-researcher",
+      "EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL": "data-researcher",
+      "AsNoTracking and change tracking costs in EF Core": "data-researcher",
+      "N+1 queries in EF Core: lazy loading, Include, and split queries": "data-researcher",
+      "Database indexing for EF Core queries: defining indexes and reading query plans": "data-researcher"
+    }
+  },
+  "steps": {
+    "requirements": {
+      "status": "passed",
+      "agent": "requirements-formalizer",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/requirements.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "input_sha256": "be9e8f245e7d2a98e3951ccdd5804ccdf7d4e3086684ea4e256d9fdadb7f3499",
+      "artifact_sha256": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-12T19:36:26Z",
+      "completed_at": "2026-10-12T19:37:15Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:37:15Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/requirements-v1.md",
+          "accepted_at": "2026-10-12T19:37:15Z"
+        }
+      ],
+      "version": 1,
+      "blocking_open_questions": 0,
+      "mandatory_topics": [
+        "EF Core performance",
+        "Query optimization",
+        "AsNoTracking",
+        "N+1 queries",
+        "Indexing"
+      ],
+      "time_budget_hours": 2.5
+    },
+    "research-data": {
+      "status": "passed",
+      "agent": "data-researcher",
+      "area": "data",
+      "topics": [
+        "EF Core performance: diagnosing and fixing slow data access",
+        "EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL",
+        "AsNoTracking and change tracking costs in EF Core",
+        "N+1 queries in EF Core: lazy loading, Include, and split queries",
+        "Database indexing for EF Core queries: defining indexes and reading query plans"
+      ],
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/research/data.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "confirmed_input": "be9e8f245e7d2a98e3951ccdd5804ccdf7d4e3086684ea4e256d9fdadb7f3499",
+        "requirements": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+        "assignment": "a2bc7a7604d87be0532d2c989ae30a18781363dfaaea67ef3e807ab7f21bebe6"
+      },
+      "artifact_sha256": "407845576649f9c56488065d5c7030dc62829dc7beabd6f8fe5e775ac25a939f",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-12T19:37:29Z",
+      "completed_at": "2026-10-12T19:39:58Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:39:58Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "407845576649f9c56488065d5c7030dc62829dc7beabd6f8fe5e775ac25a939f",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/research-data-v1.md",
+          "accepted_at": "2026-10-12T19:39:58Z"
+        }
+      ],
+      "version": 1,
+      "source_count": 22
+    },
+    "coverage": {
+      "status": "passed",
+      "agent": "quality-validator",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/validation/coverage.json",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+        "research/data.md": "407845576649f9c56488065d5c7030dc62829dc7beabd6f8fe5e775ac25a939f"
+      },
+      "artifact_sha256": "c13a1064e0e477edcaa34e1d11ea061eb7072386c1025693c7f097ad8d92c190",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-12T19:40:07Z",
+      "completed_at": "2026-10-12T19:41:02Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:41:02Z"
+        }
+      ],
+      "summary": "runs/20261012-193618-middle-backend-efcore-06d058/validation/coverage.md",
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "c13a1064e0e477edcaa34e1d11ea061eb7072386c1025693c7f097ad8d92c190",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/coverage-v1.json",
+          "accepted_at": "2026-10-12T19:41:02Z"
+        }
+      ],
+      "version": 1,
+      "advisory_findings": 2
+    },
+    "plan": {
+      "status": "passed",
+      "agent": "study-planner",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/plan.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+        "research/data.md": "407845576649f9c56488065d5c7030dc62829dc7beabd6f8fe5e775ac25a939f",
+        "validation/coverage.json": "c13a1064e0e477edcaa34e1d11ea061eb7072386c1025693c7f097ad8d92c190"
+      },
+      "artifact_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-12T19:47:16Z",
+      "completed_at": "2026-10-12T19:50:42Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:43:20Z"
+        },
+        {
+          "attempt": 1,
+          "version": 2,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:50:42Z",
+          "revision": "rev-001"
+        }
+      ],
+      "planned_hours": 2.5,
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "0d7f771cfb3d1e48ea914624f972ace57f7ada56255fcf7f2fb6026357873791",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/plan-v1.md",
+          "accepted_at": "2026-10-12T19:43:20Z"
+        },
+        {
+          "version": 2,
+          "sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": "rev-001",
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/plan-v2.md",
+          "accepted_at": "2026-10-12T19:50:42Z"
+        }
+      ],
+      "version": 2,
+      "retry_blocked": false,
+      "active_revision": null,
+      "revisions": [
+        "rev-001"
+      ]
+    },
+    "plan-validation": {
+      "status": "passed",
+      "agent": "quality-validator",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/validation/plan.json",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "b40d049c93f8401848e60ceab6e0b2dd4947f816cd4e514d8276892e458c0ed8",
+        "research/data.md": "407845576649f9c56488065d5c7030dc62829dc7beabd6f8fe5e775ac25a939f",
+        "validation/coverage.json": "c13a1064e0e477edcaa34e1d11ea061eb7072386c1025693c7f097ad8d92c190",
+        "plan.md": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843"
+      },
+      "artifact_sha256": "2c8c150048d447d4d6ee6bdf6ddf42cbcfff537a46629a055deeb39b3f685ac5",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-12T19:50:45Z",
+      "completed_at": "2026-10-12T19:51:52Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:44:40Z"
+        },
+        {
+          "result": "invalidated",
+          "reasons": [
+            "input step 'plan' is pending"
+          ],
+          "at": "2026-10-12T19:47:12Z"
+        },
+        {
+          "attempt": 1,
+          "version": 2,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-12T19:51:52Z"
+        }
+      ],
+      "summary": "runs/20261012-193618-middle-backend-efcore-06d058/validation/plan.md",
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "1252874ba425911b416a671ef3be3091cdf1a461a703bcc4c4936d6103791cb0",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/plan-validation-v1.json",
+          "accepted_at": "2026-10-12T19:44:40Z"
+        },
+        {
+          "version": 2,
+          "sha256": "2c8c150048d447d4d6ee6bdf6ddf42cbcfff537a46629a055deeb39b3f685ac5",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/plan-validation-v2.json",
+          "accepted_at": "2026-10-12T19:51:52Z"
+        }
+      ],
+      "version": 2,
+      "advisory_findings": 3,
+      "retry_blocked": false
+    },
+    "approval": {
+      "status": "approved",
+      "agent": "user",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/approval.json",
+      "ledger": "runs/20261012-193618-middle-backend-efcore-06d058/approval/decisions.jsonl",
+      "attempts": 1,
+      "artifact_sha256": "6a84a9b488b9d83299f3d66c90119177fbc6702eda16d6772d683f1236de3473",
+      "agent_id": null,
+      "completed_at": "2026-10-13T11:03:14Z",
+      "decision": "approved",
+      "decision_id": "dec-002",
+      "ledger_seq": 2,
+      "ledger_entry_sha256": "6ba2a6ca53cd595cca041ddc4f9dd814f3967ae444269649b1558df913719bee",
+      "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+      "plan_version": 2,
+      "plan_validation_sha256": "2c8c150048d447d4d6ee6bdf6ddf42cbcfff537a46629a055deeb39b3f685ac5",
+      "consumed_through": 2,
+      "consumed_sha256": "2e5b10d556498f01b829391a29c60ee9732181d258c080c591eaf47ab47e31e3",
+      "decisions": [
+        {
+          "seq": 1,
+          "decision_id": "dec-001",
+          "decision": "approve",
+          "entry_sha256": "757d0f9bf3d7025c93d3412cc9b063445cadce7c52d5bc1986bd701f2d937e47",
+          "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "plan_version": 2,
+          "outcome": "refused",
+          "reasons": [
+            "System-generated prompt: the transcript records origin 'human'."
+          ],
+          "via": "decide",
+          "at": "2026-10-13T10:56:25Z"
+        },
+        {
+          "seq": 2,
+          "decision_id": "dec-002",
+          "decision": "approve",
+          "entry_sha256": "6ba2a6ca53cd595cca041ddc4f9dd814f3967ae444269649b1558df913719bee",
+          "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "plan_version": 2,
+          "outcome": "applied",
+          "reasons": [],
+          "via": "decide",
+          "at": "2026-10-13T11:03:14Z"
+        }
+      ],
+      "history": [
+        {
+          "result": "decision_refused",
+          "decision_id": "dec-001",
+          "decision": "approve",
+          "reasons": [
+            "System-generated prompt: the transcript records origin 'human'."
+          ],
+          "at": "2026-10-13T10:56:25Z"
+        },
+        {
+          "result": "approved",
+          "decision_id": "dec-002",
+          "version": 1,
+          "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "at": "2026-10-13T11:03:14Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "6a84a9b488b9d83299f3d66c90119177fbc6702eda16d6772d683f1236de3473",
+          "attempt": 1,
+          "agent_id": null,
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/approval-v1.json",
+          "accepted_at": "2026-10-13T11:03:14Z"
+        }
+      ],
+      "version": 1
+    },
+    "render": {
+      "status": "passed",
+      "agent": "renderer",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/guide.html",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "plan.md": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+        "approval.json": "6a84a9b488b9d83299f3d66c90119177fbc6702eda16d6772d683f1236de3473"
+      },
+      "artifact_sha256": "f02608aa395b0b9f88df86eb1db9c7d51a0fc17a3a7ea532df9aeb5f7ddacec6",
+      "agent_id": "render-guide.ps1",
+      "started_at": "2026-10-13T12:29:31Z",
+      "completed_at": "2026-10-13T12:29:32Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "at": "2026-10-13T12:20:24Z"
+        },
+        {
+          "result": "discarded",
+          "reasons": [
+            "integrity: manual modification discarded ()"
+          ],
+          "at": "2026-10-13T12:29:20Z"
+        },
+        {
+          "attempt": 1,
+          "version": 2,
+          "result": "passed",
+          "plan_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+          "at": "2026-10-13T12:29:32Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "4b7f88d53bb66c2e566076373672d2b9e4583f28b3e090026fd95f465eea195f",
+          "attempt": 1,
+          "agent_id": "render-guide.ps1",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/render-v1.html",
+          "accepted_at": "2026-10-13T12:20:24Z"
+        },
+        {
+          "version": 2,
+          "sha256": "f02608aa395b0b9f88df86eb1db9c7d51a0fc17a3a7ea532df9aeb5f7ddacec6",
+          "attempt": 1,
+          "agent_id": "render-guide.ps1",
+          "revision": null,
+          "snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/render-v2.html",
+          "accepted_at": "2026-10-13T12:29:32Z"
+        }
+      ],
+      "version": 2,
+      "retry_blocked": false
+    }
+  },
+  "integrity": {
+    "status": "ok",
+    "violations": [],
+    "detected_at": null,
+    "events": [
+      {
+        "step": "render",
+        "resolution": "discard",
+        "expected_sha256": "4b7f88d53bb66c2e566076373672d2b9e4583f28b3e090026fd95f465eea195f",
+        "found_sha256": null,
+        "modified_copy": null,
+        "at": "2026-10-13T12:29:20Z"
+      }
+    ]
+  },
+  "failed_steps": [],
+  "next_step": null,
+  "revisions": [
+    {
+      "id": "rev-001",
+      "step": "plan",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/plan.md",
+      "owner": "study-planner",
+      "requested_by": "user",
+      "source": "advisory",
+      "advisory_findings": [
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+      "reason": "The user wants the four plan-validation advisory inconsistencies fixed and AsNoTracking moved earlier so it can be reviewed on a later day.",
+      "feedback": "P1: Either include the deferred paging STATISTICS IO comparison on Day 4 or remove the incorrect cross-reference from Day 2. P2: Move AsNoTracking earlier so it can be reviewed on a later day. P3: Make the Day 2 revision description consistent with its position in the schedule. P4: Explicitly document how topic priorities and time allocations were determined. Constraints: Preserve all five mandatory topics. Keep exactly five sessions of 30 minutes, totaling 150 minutes. Preserve the hands-on focus and short interview questions. Use only existing validated research. Do not rerun research agents or fetch new sources.",
+      "user_confirmation": "yes",
+      "request_file": "runs/20261012-193618-middle-backend-efcore-06d058/revisions/rev-001-request.json",
+      "request_sha256": "6cf093d5e07bf2ab2e7ba881035883bb0d9eca9bde5170d802fa1609742d9599",
+      "requested_at": "2026-10-12T19:47:12Z",
+      "base_version": 1,
+      "base_sha256": "0d7f771cfb3d1e48ea914624f972ace57f7ada56255fcf7f2fb6026357873791",
+      "base_snapshot": "runs/20261012-193618-middle-backend-efcore-06d058/versions/plan-v1.md",
+      "base_attempt": 1,
+      "status": "completed",
+      "result_version": 2,
+      "result_sha256": "cd46be76aabf17c7c1b0a42e30ad999921725df25fe70e76771c95bad05f0843",
+      "completed_at": "2026-10-12T19:51:52Z"
+    }
+  ]
+}

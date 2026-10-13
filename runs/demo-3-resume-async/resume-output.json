@@ -1,0 +1,16 @@
+{
+  "run_id": "20261013-134101-resume-demo-async-ad8d3d",
+  "result": "resumed",
+  "workflow_status": "in_progress",
+  "interrupted_recorded": [],
+  "skipped_steps": [
+    "requirements",
+    "research-dotnet"
+  ],
+  "next": {
+    "action": "run-step",
+    "step": "coverage",
+    "coordinator_step": 11,
+    "attempts_left": 3
+  }
+}

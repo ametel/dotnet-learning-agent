@@ -1,0 +1,345 @@
+{
+  "schema_version": 2,
+  "run_id": "20261013-134101-resume-demo-async-ad8d3d",
+  "workflow_status": "completed",
+  "current_step": null,
+  "created_at": "2026-10-13T13:41:01Z",
+  "updated_at": "2026-10-13T13:51:44Z",
+  "inputs": {
+    "confirmed_input": "runs/20261013-134101-resume-demo-async-ad8d3d/confirmed-input.md"
+  },
+  "research": {
+    "selected_at": "2026-10-13T13:42:18Z",
+    "selection_file": "runs/20261013-134101-resume-demo-async-ad8d3d/research-selection.json",
+    "selection_sha256": "0f401ea7cacd94751395ce548d8b6f4384e3c58dca77099adf67c85a89eec6a2",
+    "selected_agents": [
+      {
+        "agent": "dotnet-researcher",
+        "area": "dotnet",
+        "step": "research-dotnet",
+        "topics": [
+          "async/await in C#: how it works and how to use it correctly in .NET backend code"
+        ],
+        "reason": "The user's only stated knowledge gap is async/await in C#.",
+        "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/research/dotnet.md"
+      }
+    ],
+    "not_selected": [
+      {
+        "agent": "data-researcher",
+        "reason": "The user stated no EF Core, SQL, or data-access gap."
+      },
+      {
+        "agent": "architecture-researcher",
+        "reason": "The user stated no system design or architecture gap."
+      }
+    ],
+    "coverage": [
+      {
+        "mandatory_topic": "async/await in C#",
+        "research_topics": [
+          "async/await in C#: how it works and how to use it correctly in .NET backend code"
+        ]
+      }
+    ],
+    "topic_owner": {
+      "async/await in C#: how it works and how to use it correctly in .NET backend code": "dotnet-researcher"
+    }
+  },
+  "steps": {
+    "requirements": {
+      "status": "passed",
+      "agent": "requirements-formalizer",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/requirements.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "input_sha256": "f84c73e050399b240ca34b1db450600a921440fcd2e6de281a5ce0cf35a5fb8a",
+      "artifact_sha256": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-13T13:41:16Z",
+      "completed_at": "2026-10-13T13:42:05Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-13T13:42:05Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/requirements-v1.md",
+          "accepted_at": "2026-10-13T13:42:05Z"
+        }
+      ],
+      "version": 1,
+      "blocking_open_questions": 0,
+      "mandatory_topics": [
+        "async/await in C#"
+      ],
+      "time_budget_hours": 3.0
+    },
+    "research-dotnet": {
+      "status": "passed",
+      "agent": "dotnet-researcher",
+      "area": "dotnet",
+      "topics": [
+        "async/await in C#: how it works and how to use it correctly in .NET backend code"
+      ],
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/research/dotnet.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "confirmed_input": "f84c73e050399b240ca34b1db450600a921440fcd2e6de281a5ce0cf35a5fb8a",
+        "requirements": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+        "assignment": "e1e547894258d7e818d64beab637d09d858e42316899abbb966dbc0a63d08a1e"
+      },
+      "artifact_sha256": "33ba3fa75ab92a839d3611ae6065ea0768cf7f5e92cc069469b868b124c8cc9c",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-13T13:42:25Z",
+      "completed_at": "2026-10-13T13:44:09Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-13T13:44:09Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "33ba3fa75ab92a839d3611ae6065ea0768cf7f5e92cc069469b868b124c8cc9c",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/research-dotnet-v1.md",
+          "accepted_at": "2026-10-13T13:44:09Z"
+        }
+      ],
+      "version": 1,
+      "source_count": 10
+    },
+    "coverage": {
+      "status": "passed",
+      "agent": "quality-validator",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/validation/coverage.json",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+        "research/dotnet.md": "33ba3fa75ab92a839d3611ae6065ea0768cf7f5e92cc069469b868b124c8cc9c"
+      },
+      "artifact_sha256": "ba3b7747de6f52a7c09955e070fe350b63b4c2cdc9786377828782fb9c827a84",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-13T13:46:04Z",
+      "completed_at": "2026-10-13T13:46:54Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-13T13:46:54Z"
+        }
+      ],
+      "summary": "runs/20261013-134101-resume-demo-async-ad8d3d/validation/coverage.md",
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "ba3b7747de6f52a7c09955e070fe350b63b4c2cdc9786377828782fb9c827a84",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/coverage-v1.json",
+          "accepted_at": "2026-10-13T13:46:54Z"
+        }
+      ],
+      "version": 1,
+      "advisory_findings": 2
+    },
+    "plan": {
+      "status": "passed",
+      "agent": "study-planner",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/plan.md",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+        "research/dotnet.md": "33ba3fa75ab92a839d3611ae6065ea0768cf7f5e92cc069469b868b124c8cc9c",
+        "validation/coverage.json": "ba3b7747de6f52a7c09955e070fe350b63b4c2cdc9786377828782fb9c827a84"
+      },
+      "artifact_sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-13T13:47:01Z",
+      "completed_at": "2026-10-13T13:48:37Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-13T13:48:37Z"
+        }
+      ],
+      "planned_hours": 3.0,
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/plan-v1.md",
+          "accepted_at": "2026-10-13T13:48:37Z"
+        }
+      ],
+      "version": 1
+    },
+    "plan-validation": {
+      "status": "passed",
+      "agent": "quality-validator",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/validation/plan.json",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "requirements.md": "33d6fd4d31a1461bbd6081da905c154cf25ab1cec5fb2440250d612948d3c142",
+        "research/dotnet.md": "33ba3fa75ab92a839d3611ae6065ea0768cf7f5e92cc069469b868b124c8cc9c",
+        "validation/coverage.json": "ba3b7747de6f52a7c09955e070fe350b63b4c2cdc9786377828782fb9c827a84",
+        "plan.md": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8"
+      },
+      "artifact_sha256": "63c370f3d49ea15003e6ade745fe09eb79749cc2912a7722b925372dcbae446c",
+      "agent_id": "<redacted>",
+      "started_at": "2026-10-13T13:48:44Z",
+      "completed_at": "2026-10-13T13:49:48Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "agent_id": "<redacted>",
+          "at": "2026-10-13T13:49:48Z"
+        }
+      ],
+      "summary": "runs/20261013-134101-resume-demo-async-ad8d3d/validation/plan.md",
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "63c370f3d49ea15003e6ade745fe09eb79749cc2912a7722b925372dcbae446c",
+          "attempt": 1,
+          "agent_id": "<redacted>",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/plan-validation-v1.json",
+          "accepted_at": "2026-10-13T13:49:48Z"
+        }
+      ],
+      "version": 1,
+      "advisory_findings": 3
+    },
+    "approval": {
+      "status": "approved",
+      "agent": "user",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/approval.json",
+      "ledger": "runs/20261013-134101-resume-demo-async-ad8d3d/approval/decisions.jsonl",
+      "attempts": 1,
+      "artifact_sha256": "26ba60ec09a8059b8fdf82efc5e4311feef980edd7daac26e7971130bb88e1c4",
+      "agent_id": null,
+      "completed_at": "2026-10-13T13:51:24Z",
+      "decision": "approved",
+      "decision_id": "dec-001",
+      "ledger_seq": 1,
+      "ledger_entry_sha256": "cab8bf8125af1641d3238d21a61414a4e51f27389fab8add81f7aeb101e2a523",
+      "plan_sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+      "plan_version": 1,
+      "plan_validation_sha256": "63c370f3d49ea15003e6ade745fe09eb79749cc2912a7722b925372dcbae446c",
+      "consumed_through": 1,
+      "consumed_sha256": "cab8bf8125af1641d3238d21a61414a4e51f27389fab8add81f7aeb101e2a523",
+      "decisions": [
+        {
+          "seq": 1,
+          "decision_id": "dec-001",
+          "decision": "approve",
+          "entry_sha256": "cab8bf8125af1641d3238d21a61414a4e51f27389fab8add81f7aeb101e2a523",
+          "plan_sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+          "plan_version": 1,
+          "outcome": "applied",
+          "reasons": [],
+          "via": "decide",
+          "at": "2026-10-13T13:51:24Z"
+        }
+      ],
+      "history": [
+        {
+          "result": "approved",
+          "decision_id": "dec-001",
+          "version": 1,
+          "plan_sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+          "at": "2026-10-13T13:51:24Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "26ba60ec09a8059b8fdf82efc5e4311feef980edd7daac26e7971130bb88e1c4",
+          "attempt": 1,
+          "agent_id": null,
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/approval-v1.json",
+          "accepted_at": "2026-10-13T13:51:24Z"
+        }
+      ],
+      "version": 1
+    },
+    "render": {
+      "status": "passed",
+      "agent": "renderer",
+      "artifact": "runs/20261013-134101-resume-demo-async-ad8d3d/guide.html",
+      "attempts": 1,
+      "max_attempts": 3,
+      "inputs_sha256": {
+        "plan.md": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+        "approval.json": "26ba60ec09a8059b8fdf82efc5e4311feef980edd7daac26e7971130bb88e1c4"
+      },
+      "artifact_sha256": "1896e3c5c85faedafd19631654b03b7d5997fb81deae14665f776fc0d4b3a6ea",
+      "agent_id": "render-guide.ps1",
+      "started_at": "2026-10-13T13:51:43Z",
+      "completed_at": "2026-10-13T13:51:44Z",
+      "history": [
+        {
+          "attempt": 1,
+          "version": 1,
+          "result": "passed",
+          "plan_sha256": "fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8",
+          "at": "2026-10-13T13:51:44Z"
+        }
+      ],
+      "accepted_versions": [
+        {
+          "version": 1,
+          "sha256": "1896e3c5c85faedafd19631654b03b7d5997fb81deae14665f776fc0d4b3a6ea",
+          "attempt": 1,
+          "agent_id": "render-guide.ps1",
+          "revision": null,
+          "snapshot": "runs/20261013-134101-resume-demo-async-ad8d3d/versions/render-v1.html",
+          "accepted_at": "2026-10-13T13:51:44Z"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "integrity": {
+    "status": "ok",
+    "violations": [],
+    "detected_at": null,
+    "events": []
+  },
+  "failed_steps": [],
+  "next_step": null
+}

@@ -50,7 +50,10 @@ when implementing or running any part of the workflow.
 > fixed with a regression test); it was discarded through the integrity resolution and
 > rendered again, without a new plan version or approval.
 > Phase 6 adds **resume** after a session restart (`/prepare-interview resume <run-id>`,
-> `scripts/resume-run.ps1`, §7), covered by fixture tests only.
+> `scripts/resume-run.ps1`, §7). On 2026-10-13 a real run was resumed in a new session after
+> research had passed: research was skipped and the run was completed through approval and
+> rendering. Resuming an interrupted (`running`) step is covered by fixture tests only.
+> Three sanitized demo runs are committed under `runs/demo-*/` (§10).
 > Not implemented yet: revisions of anything other than the plan. Known gaps are listed in
 > §6.3, §7.1, §8.4, §8.5, and §12.5.
 > Do not describe anything as working until it exists and has been exercised.
@@ -209,8 +212,8 @@ The coordinator writes the selection and a one-line reason for each agent into
 4. Global coverage gate (`coverage` step, quality-validator) → `validation/coverage.json`
 5. Learning-plan synthesis (`plan` step, study-planner, needs all research) → `plan.md`
 6. Plan validation (`plan-validation` step, quality-validator) → `validation/plan.json`
-7. Human approval (`approval` step; state machine implemented in Phase 4A, decision capture
-   not yet, §8) → `approval.json`
+7. Human approval (`approval` step; state machine since Phase 4A, decision capture by the
+   UserPromptSubmit hook since Phase 4B, §8) → `approval.json`
 8. HTML generation (`render` step, `scripts/render-guide.ps1`, §8.3) → `guide.html`
 
 **Parallel:** independent research subagents (one per topic area) may run at the same
@@ -652,7 +655,10 @@ the render (§8.1), and a new guide needs a new decision by the user.
 - A malformed unconsumed entry blocks `decide` until `quarantine-ledger` is run. A user
   decision that arrived after the malformed line is quarantined with it and must be
   submitted again.
-- A voided render resets the step but leaves `guide.html` on disk until a renderer exists.
+- A voided render resets the step but leaves `guide.html` on disk.
+- **Runs created before Phase 3B cannot be approved.** Their plan step has no `version`; the
+  UserPromptSubmit hook records `plan_version: 0`, which the ledger rejects as malformed, so
+  `decide` is blocked until `quarantine-ledger`.
 
 ---
 
@@ -754,9 +760,18 @@ templates/          final HTML templates              (planned)
 
 ### Committed demonstration runs
 
-Three demonstration runs will eventually be committed. They must live in directories named
-`runs/demo-*/`. `.gitignore` always tracks those, including their logs. Any other directory
-under `runs/` is treated as local and is ignored.
+Three demonstration runs are committed in directories named `runs/demo-*/`: `demo-1-success-async`,
+`demo-2-revision-efcore`, and `demo-3-resume-async` (README, *Demo runs*). `.gitignore`
+always tracks those, including their logs. Any other directory under `runs/` is treated as
+local and is ignored.
+
+Demo directories are sanitized, read-only snapshots, not live runs:
+- artifacts are byte-identical copies (`.gitattributes` marks them `-text`), so their
+  SHA-256 matches the snapshot;
+- `state.json` is published as `state.snapshot.json`, so `state.ps1` and the hooks never
+  treat the directory as a run. Subagent IDs are redacted and prompt hashes removed;
+- approval evidence (`approval/decisions.jsonl`, which holds session IDs and local transcript
+  paths, and `approval.json`) and session transcripts are never committed.
 
 ---
 

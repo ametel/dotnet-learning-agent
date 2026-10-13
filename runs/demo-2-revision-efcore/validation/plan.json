@@ -1,0 +1,69 @@
+{
+  "report": "plan",
+  "run_id": "20261012-193618-middle-backend-efcore-06d058",
+  "generated_by": "quality-validator",
+  "verdict": "pass",
+  "mandatory_topics": [
+    {
+      "topic": "EF Core performance",
+      "status": "covered",
+      "evidence": "plan.md ### EF Core performance: theory 5 + practice 20 + interview 5 on Day 1 (row 1, 30 min); revised at the start of Day 2 (row 2) and in Day 5 revision/mock (row 8). Content matches research/data.md ### EF Core performance: diagnosing and fixing slow data access."
+    },
+    {
+      "topic": "Query optimization",
+      "status": "covered",
+      "evidence": "plan.md ### Query optimization: theory 5 + practice 15 + interview 5 on Day 2 (row 3, 25 min); Day 5 revision and mock Q2 (row 8). Content matches research/data.md ### EF Core query optimization; the SET STATISTICS IO paging run is now only in Optional Extensions and Day 2 no longer cross-references Day 4."
+    },
+    {
+      "topic": "AsNoTracking",
+      "status": "covered",
+      "evidence": "plan.md ### AsNoTracking: theory 3 + practice 8 + interview 4 on Day 3 (row 4, 15 min); reviewed in the Day 5 revision (two recall questions) and mock Q3 (row 8). Practice uses entity queries, addressing coverage advisory C2."
+    },
+    {
+      "topic": "N+1 queries",
+      "status": "covered",
+      "evidence": "plan.md ### N+1 queries: theory 5 + practice 10 on Day 3 (row 5), practice 10 + interview 5 on Day 5 (row 7); Day 5 mock Q4. Content matches research/data.md ### N+1 queries in EF Core; the lazy-loading 'synchronous I/O' point is downgraded per coverage advisory C1."
+    },
+    {
+      "topic": "Indexing",
+      "status": "covered",
+      "evidence": "plan.md ### Indexing: theory 5 + practice 20 + interview 5 on Day 4 (row 6, 30 min); Day 5 revision (logical reads before/after) and mock Q5. Content matches research/data.md ### Database indexing for EF Core queries."
+    }
+  ],
+  "findings": [
+    {
+      "id": "P1",
+      "severity": "advisory",
+      "category": "other",
+      "owner": "study-planner",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/plan.md",
+      "topic": null,
+      "message": "Time Budget says 'About 70% of each topic session is hands-on practice', but the plan's own per-topic minutes give 67% (EF Core performance 20/30), 60% (Query optimization 15/25), 53% (AsNoTracking 8/15), 67% (N+1 queries 20/30), and 67% (Indexing 20/30), about 64% overall (83/130).",
+      "fix": "State the actual share (for example 'about two thirds overall, about half for AsNoTracking') or adjust the wording so it matches the topic breakdowns."
+    },
+    {
+      "id": "P2",
+      "severity": "advisory",
+      "category": "traceability",
+      "owner": "study-planner",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/plan.md",
+      "topic": null,
+      "message": "The new allocation explanation (revision item P4) reserves revision and mock time 'within the 10-15% target', but neither requirements.md nor research/data.md states such a target, and the plan does not say where it comes from.",
+      "fix": "Label the 10-15% revision share as the planner's own heuristic (or a planning assumption) rather than as an external target."
+    },
+    {
+      "id": "P3",
+      "severity": "advisory",
+      "category": "unsupported_claim",
+      "owner": "study-planner",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/plan.md",
+      "topic": "N+1 queries",
+      "message": "'N+1 is the most common hidden EF performance bug and a frequent code-review interview task' is not in research/data.md, which only lists N+1 among the usual root causes and says lazy loading hides it.",
+      "fix": "Rephrase to what research supports, for example 'N+1 is one of the usual root causes of slow EF data access, and lazy loading hides it'."
+    }
+  ],
+  "optional_recommendations": [
+    "The Day 2 'Observe' note says offset time grows with the page number while keyset stays flat, but the exercise fetches only page 2,000; timing two or three page numbers would make that observation measurable (the wording is copied from research, so this is optional).",
+    "Buffering versus streaming (ToListAsync versus AsAsyncEnumerable) remains an unresearched optional Middle+ talking point; the plan correctly gives no content for it."
+  ]
+}

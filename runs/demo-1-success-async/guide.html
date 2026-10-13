@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta name="plan-sha256" content="fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8">
+<title>Study Plan: Middle .NET Backend, async/await in C#, 6 sessions in 10 days</title>
+<style>
+:root { color-scheme: light dark; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --accent: #0969da; --panel: #f6f8fa; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --accent: #4493f8; --panel: #151b23; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main, footer, nav { max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
+header { padding-top: 2rem; border-bottom: 1px solid var(--line); }
+header h1 { margin: 0 0 .5rem; font-size: 1.8rem; line-height: 1.25; }
+.meta { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+.meta code { font-size: .85rem; }
+nav { padding-top: 1rem; }
+nav ul { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+nav a { font-size: .95rem; }
+h2 { margin-top: 2.5rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+h3 { margin-top: 1.75rem; }
+a { color: var(--accent); overflow-wrap: anywhere; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--panel); padding: .1rem .3rem; border-radius: 4px; }
+pre { background: var(--panel); padding: 1rem; overflow-x: auto; border-radius: 6px; }
+pre code { padding: 0; background: none; }
+.table { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .95rem; }
+th, td { border: 1px solid var(--line); padding: .4rem .6rem; text-align: left; vertical-align: top; }
+th { background: var(--panel); }
+li { margin: .2rem 0; }
+footer { margin-top: 3rem; padding-bottom: 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }</style>
+</head>
+<body>
+<header>
+<h1>Study Plan: Middle .NET Backend, async/await in C#, 6 sessions in 10 days</h1>
+<p class="meta">Run <code>20261013-134101-resume-demo-async-ad8d3d</code> &middot; plan version 1 &middot; 3 of 3 hours planned &middot; approved as <code>dec-001</code> at 10/13/2026 13:51:24</p>
+</header>
+<nav aria-label="Sections"><ul><li><a href="#summary">Summary</a></li><li><a href="#assumptions">Assumptions</a></li><li><a href="#time-budget">Time Budget</a></li><li><a href="#schedule">Schedule</a></li><li><a href="#topic-plans">Topic Plans</a></li><li><a href="#revision-and-mock-interviews">Revision and Mock Interviews</a></li><li><a href="#sources">Sources</a></li><li><a href="#optional-extensions">Optional Extensions</a></li></ul></nav>
+<main>
+<h2 id="summary">Summary</h2>
+<p>This plan prepares a Middle-level .NET backend candidate for an interview in about 10 days, focused entirely on the one stated gap: async/await in C#. It uses the full 3-hour budget as 6 sessions of 30 minutes (Day 1 to Day 6). Five sessions are hands-on and use the four exercises from research. Each pairs a short theory block with the code, and most end with short interview questions. The sixth session is spaced revision plus a mock interview. Every session uses a backend lens (ASP.NET Core endpoints, thread-pool starvation, cancellation flowed from the request), as the role requires.</p>
+<h2 id="assumptions">Assumptions</h2>
+<p>Repeated from *Open Questions and Assumptions* in <code>requirements.md</code>:</p>
+<ul>
+<li><strong>Interview date:</strong> about 10 days after the requirements were confirmed (on or around 2026-10-23). All 6 sessions must be finished before it.</li>
+<li><strong>Study days:</strong> which 6 of the 10 days was not specified. The plan schedules Day 1 to Day 6 and works on any 6 days before the interview. Weeks 1 and 2 in the schedule only spread the 6 days over the 10-day window. Spacing sessions out (for example, one rest day before Day 6) helps revision.</li>
+<li><strong>Strengths:</strong> none were named. No other topic gets dedicated time, and no strength is assumed.</li>
+<li><strong>Mandatory topics:</strong> only the stated gap, async/await in C#.</li>
+<li><strong>Backend lens:</strong> applying async/await in a .NET backend is optional and covered inside the async/await sessions, not as a separate topic.</li>
+<li><strong>Depth over breadth:</strong> the plan goes deep on async/await in C#.</li>
+<li><strong>Constraints:</strong> free, public resources and a local .NET SDK for the exercises.</li>
+<li><strong>.NET version:</strong> latest LTS. Research assumed .NET 10 (LTS) and ASP.NET Core 10, so the exercises use a local .NET 10 SDK.</li>
+<li><strong>Interview format:</strong> a generic technical interview for a Middle .NET backend role, with conceptual questions and possibly code reading or writing.</li>
+<li><strong>Language:</strong> English materials.</li>
+<li><strong>Time budget:</strong> 3 hours, as stated (30 minutes x 6 days = 180 minutes). No session exceeds 30 minutes.</li></ul>
+<p>Research gaps that affect the plan:</p>
+<ul>
+<li><strong>EF Core `DbContext` concurrency.</strong> The note that one scoped <code>DbContext</code> must not run concurrent operations has no source in research. The plan presents it as general guidance only, with no citation, and does not build an exercise on it.</li>
+<li><strong>`ValueTask&lt;T&gt;`.</strong> The guidance (stretch question 8) has no Microsoft Learn source in research. It stays an optional stretch question and is not part of the mock interview.</li>
+<li><strong>`dotnet-counters`.</strong> The counter names used in Exercise 2 were not verified. Watching them is optional; the latency comparison is the required observation.</li>
+<li><strong>Revision share.</strong> Because sessions are fixed at 30 minutes, the dedicated revision and mock session is 30 of 180 minutes (about 17%), slightly above the 10–15% target. Short recaps at the start of sessions 3 to 5 are part of those sessions, not extra time.</li></ul>
+<h2 id="time-budget">Time Budget</h2>
+<ul>
+<li><strong>Budget:</strong> 3 hours (180 minutes). <strong>Planned:</strong> 3 hours (180 minutes), in 6 sessions of 30 minutes.</li>
+<li><strong>async/await in C# (theory, practice, interview):</strong> 150 minutes (sessions 1 to 5). Roughly 35 minutes of theory, 90 minutes of hands-on exercises, and 25 minutes of interview questions, spread across the sessions.</li>
+<li><strong>Revision and mock interview:</strong> 30 minutes (session 6): 10 minutes of revision, 20 minutes of mock interview.</li>
+<li><strong>Other topics:</strong> 0 minutes, because the user&#39;s only stated weak area is async/await in C#.</li></ul>
+<h2 id="schedule">Schedule</h2>
+<div class="table"><table>
+<thead><tr><th>#</th><th>Week</th><th>Topic</th><th>Activities</th><th>Minutes</th><th>Sources</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>1</td><td>async/await in C#</td><td>theory, practice</td><td>30</td><td><a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/</a> ; <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads</a></td></tr>
+<tr><td>2</td><td>1</td><td>async/await in C#</td><td>theory, practice</td><td>30</td><td><a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls</a> ; <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model</a></td></tr>
+<tr><td>3</td><td>1</td><td>async/await in C#</td><td>practice, interview</td><td>30</td><td><a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls</a> ; <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code</a></td></tr>
+<tr><td>4</td><td>2</td><td>async/await in C#</td><td>theory, practice, interview</td><td>30</td><td><a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete</a> ; <a href="https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md">https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md</a></td></tr>
+<tr><td>5</td><td>2</td><td>async/await in C#</td><td>theory, practice, interview</td><td>30</td><td><a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators</a> ; <a href="https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation">https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation</a></td></tr>
+<tr><td>6</td><td>2</td><td>Revision and mock interview</td><td>revision, mock</td><td>30</td><td><a href="https://devblogs.microsoft.com/dotnet/configureawait-faq/">https://devblogs.microsoft.com/dotnet/configureawait-faq/</a> ; <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code</a></td></tr>
+</tbody></table></div>
+<p>Session details:</p>
+<ol>
+<li><strong>Day 1. How `await` works (Exercise 1).</strong> 10 min theory: the compiler-generated state machine, continuations, and why async/await creates no threads. 20 min: Exercise 1 (thread IDs around <code>await Task.Delay(500)</code>, the &quot;async without await&quot; warning, sequential vs. <code>Task.WhenAll</code> timing).</li>
+<li><strong>Day 2. Why blocking hurts a backend (Exercise 2, part 1).</strong> 10 min theory: I/O-bound vs. CPU-bound work, &quot;async all the way&quot;, thread-pool starvation. 20 min: create the <code>dotnet new web</code> app with <code>/sync</code> and <code>/async</code> endpoints, and the small <code>HttpClient</code> load loop.</li>
+<li><strong>Day 3. Measure starvation (Exercise 2, part 2).</strong> 3 min recap of Day 1. 17 min: run about 200 concurrent requests against each endpoint and compare latency (optionally watch <code>dotnet-counters</code>). 10 min: interview questions 2 and 3, answered out loud.</li>
+<li><strong>Day 4. Fix-the-bugs code review (Exercise 3).</strong> 5 min theory: <code>async void</code> in ASP.NET Core, <code>Task.Run</code> misuse, flowing <code>CancellationToken</code>. 20 min: Exercise 3 (four planted bugs). 5 min: interview questions 4 and 5.</li>
+<li><strong>Day 5. Exceptions and cancellation (Exercise 4).</strong> 3 min recap of Days 2 to 4. 7 min theory: <code>Task.WhenAll</code> and <code>AggregateException</code>, <code>Canceled</code> vs. <code>Faulted</code>, <code>ConfigureAwait(false)</code>. 15 min: Exercise 4. 5 min: interview questions 6 and 7.</li>
+<li><strong>Day 6. Revision and mock interview.</strong> 10 min revision, 20 min mock interview (see *Revision and Mock Interviews*).</li></ol>
+<h2 id="topic-plans">Topic Plans</h2>
+<h3 id="async-await-in-c">async/await in C</h3>
+<ul>
+<li><strong>Why it matters for this role:</strong> In a .NET backend, async APIs let a small thread pool serve thousands of concurrent requests. Blocking calls such as <code>.Result</code> or <code>.Wait()</code> cause thread-pool starvation and slow responses. Interviewers for a Middle backend role expect you to explain how <code>await</code> works and to spot common async bugs in code review.</li>
+<li><strong>Theory:</strong><ul>
+<li><strong>Mechanics.</strong> The compiler turns an <code>async</code> method into a state machine. At an <code>await</code> on an incomplete task, the rest of the method is registered as a continuation and control returns to the caller. <code>async</code>/<code>await</code> do not create threads. A method marked <code>async</code> with no <code>await</code> runs synchronously, and the compiler warns. Sources: <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/">Asynchronous programming with async and await</a>, <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads">Task asynchronous programming model: Threads</a>.</li>
+<li><strong>I/O-bound vs. CPU-bound.</strong> Await async I/O APIs directly, without <code>Task.Run</code>. In ASP.NET Core, do not call <code>Task.Run</code> and immediately await it: request code already runs on thread-pool threads. Source: <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model">Asynchronous programming scenarios</a>.</li>
+<li><strong>Backend impact.</strong> Blocking calls (<code>.Result</code>, <code>.Wait()</code>, synchronous reads of <code>Request.Body</code>) starve the thread pool. Make the whole call stack async, from the endpoint down to data access and <code>HttpClient</code>. Source: <a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls">ASP.NET Core Best Practices: Avoid blocking calls</a>.</li>
+<li><strong>Return types.</strong> Use <code>Task</code> or <code>Task&lt;T&gt;</code>. <code>async void</code> is only for event handlers; in ASP.NET Core the request completes at the first <code>await</code>, and later access to <code>HttpContext</code> can crash the process. Sources: <a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete">ASP.NET Core Best Practices: HttpContext after the request</a>, <a href="https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md">AsyncGuidance</a>.</li>
+<li><strong>Composition, exceptions, cancellation.</strong> Start independent work first, then <code>await Task.WhenAll(...)</code>. All exceptions are stored in an <code>AggregateException</code>, but <code>await</code> rethrows only one; inspect each task to see them all. Pass a <code>CancellationToken</code> (for example <code>HttpContext.RequestAborted</code> or an action parameter) to every API that accepts one. A cancelled task ends <code>Canceled</code>, not <code>Faulted</code>. Sources: <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators">Consuming the TAP: combinators</a>, <a href="https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation">Task cancellation</a>.</li>
+<li><strong>`ConfigureAwait(false)` and deadlocks.</strong> The classic deadlock comes from blocking on async work on a thread with a single-threaded <code>SynchronizationContext</code> (UI, classic ASP.NET). ASP.NET Core has no <code>SynchronizationContext</code>, so app code does not need <code>ConfigureAwait(false)</code>; general-purpose libraries should still use it. Blocking is still harmful in ASP.NET Core because it starves the pool. Sources: <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code">Common async/await bugs</a>, <a href="https://devblogs.microsoft.com/dotnet/configureawait-faq/">ConfigureAwait FAQ</a>.</li>
+<li><strong>Backend example to study.</strong> The research&#39;s before-and-after <code>/orders/{id}</code> controller: the &quot;bad&quot; version blocks three times with <code>.Result</code>; the &quot;good&quot; version is <code>async Task&lt;ActionResult&lt;OrderDto&gt;&gt;</code>, awaits the order first, then runs the customer lookup and the shipping HTTP call concurrently with <code>Task.WhenAll</code>, and flows <code>CancellationToken ct</code>. General guidance (not sourced in research): do not run concurrent queries on one shared scoped EF Core <code>DbContext</code>; parallelize only independent resources, such as a database query and an HTTP call.</li>
+<li><strong>Red flags to avoid in answers:</strong> &quot;<code>async</code> runs the method on a background thread&quot;; &quot;<code>await</code> creates a thread&quot;; using <code>.Result</code>, <code>.Wait()</code>, or <code>GetAwaiter().GetResult()</code> &quot;to keep it simple&quot;; wrapping sync calls in <code>Task.Run</code> to &quot;make them async&quot;; <code>async void</code> actions; awaiting independent calls one after another.</li></ul>
+</li>
+<li><strong>Practice:</strong> (all exercises from research; local .NET 10 SDK)<ol>
+<li><strong>Exercise 1: Watch the state machine (Day 1, 20 min).</strong> In an <code>async Task Main</code>, log <code>Environment.CurrentManagedThreadId</code> before and after <code>await Task.Delay(500)</code>. Add an <code>async</code> method with no <code>await</code> and read the warning. Time three <code>Task.Delay(1000)</code> calls sequentially and with <code>Task.WhenAll</code>, using <code>Stopwatch</code>.<ul>
+<li>*Observe:* the thread ID can change after the <code>await</code>; sequential takes about 3 s, <code>WhenAll</code> about 1 s; the warning shows that a method without <code>await</code> runs synchronously.</li></ul>
+</li>
+<li><strong>Exercise 2: Thread-pool starvation in a minimal API (Days 2 and 3, 37 min).</strong> Create <code>dotnet new web</code> with <code>/sync</code> (<code>Task.Delay(500).Wait(); return &quot;ok&quot;;</code>) and <code>/async</code> (<code>await Task.Delay(500); return &quot;ok&quot;;</code>). Load each with about 200 concurrent requests from a small <code>HttpClient</code> console loop using <code>Task.WhenAll</code>. Optionally run <code>dotnet-counters monitor -n &lt;app&gt; System.Runtime</code> (counter names unverified).<ul>
+<li>*Measure:* latency per endpoint. <code>/sync</code> latency climbs and the thread count grows slowly; <code>/async</code> stays near 500 ms with few threads.</li></ul>
+</li>
+<li><strong>Exercise 3: Fix-the-bugs code review (Day 4, 20 min).</strong> Write a controller with four planted bugs: an <code>async void</code> action, <code>.Result</code> on a repository call, <code>await Task.Run(() =&gt; _repo.GetAsync())</code>, and three independent awaits run sequentially. Fix each one, add <code>CancellationToken ct</code>, and pass it down.<ul>
+<li>*Observe:* explain each fix out loud in one sentence. That sentence is your interview answer.</li></ul>
+</li>
+<li><strong>Exercise 4: Cancellation and WhenAll exceptions (Day 5, 15 min).</strong> Run <code>Task.WhenAll</code> over two tasks that throw different exceptions; print <code>ex.GetType()</code> and then each task&#39;s <code>Exception</code>. Use <code>new CancellationTokenSource(TimeSpan.FromMilliseconds(200))</code> with <code>Task.Delay(1000, cts.Token)</code> and print <code>task.Status</code>.<ul>
+<li>*Observe:* <code>await</code> surfaces one exception while the tasks hold all of them; the cancelled task&#39;s status is <code>Canceled</code>, with <code>Exception == null</code>.</li></ul>
+</li></ol>
+</li>
+<li><strong>Interview questions:</strong> (short answers, out loud, at most 1 to 2 minutes each)<ol>
+<li>*What actually happens when execution reaches <code>await</code> on a task that has not completed?*<ul>
+<li>Strong answer covers: the compiler-generated state machine; the rest of the method registered as a continuation; control returns to the caller; resumption when the task completes; no thread created or blocked while waiting.</li></ul>
+</li>
+<li>*Why does async/await improve the scalability of an ASP.NET Core API but not the speed of a single request?*<ul>
+<li>Strong answer covers: threads freed during I/O waits so a small pool serves many requests; blocking leads to thread-pool starvation; async adds a small per-call overhead.</li></ul>
+</li>
+<li>*A colleague writes <code>var user = _repo.GetUserAsync(id).Result;</code> in a controller. What is wrong, and would it deadlock in ASP.NET Core?*<ul>
+<li>Strong answer covers: sync-over-async blocks a pool thread and risks starvation under load; usually no deadlock in ASP.NET Core (no <code>SynchronizationContext</code>), but it can deadlock in UI apps or classic ASP.NET; fix by awaiting and making the action <code>async Task&lt;...&gt;</code>.</li></ul>
+</li>
+<li>*When would you use <code>Task.Run</code> in a web API, and when should you not?*<ul>
+<li>Strong answer covers: not for I/O, not to &quot;async-ify&quot; a synchronous API, not as <code>await Task.Run(...)</code> in request code; long CPU-bound work belongs in a background service or queue.</li></ul>
+</li>
+<li>*Why is <code>async void</code> dangerous in ASP.NET Core, and where is it acceptable?*<ul>
+<li>Strong answer covers: the caller cannot await or observe it; exceptions can crash the process; the request may complete before the work does; acceptable only for event handlers.</li></ul>
+</li>
+<li>*You call three independent services. How do you run them concurrently, and how do you handle a failure?*<ul>
+<li>Strong answer covers: start the tasks, then <code>await Task.WhenAll</code>; <code>await</code> rethrows only the first exception, so inspect each task&#39;s <code>Exception</code>; flow a <code>CancellationToken</code>.</li></ul>
+</li>
+<li>*Do you need <code>ConfigureAwait(false)</code> in an ASP.NET Core controller? In a NuGet library?*<ul>
+<li>Strong answer covers: no in app code (no <code>SynchronizationContext</code>); yes in general-purpose libraries, to avoid deadlocks and needless context switches.</li></ul>
+</li>
+<li>*(Stretch, optional) When would you return <code>ValueTask&lt;T&gt;</code> instead of <code>Task&lt;T&gt;</code>?*<ul>
+<li>Strong answer covers: hot paths that often complete synchronously, such as cache hits, to avoid an allocation; a <code>ValueTask</code> must be awaited only once. (No Microsoft Learn source in research; see *Assumptions*.)</li></ul>
+</li></ol>
+</li>
+<li><strong>Sources:</strong><ul>
+<li><a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/</a></li>
+<li><a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads</a></li>
+<li><a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model</a></li>
+<li><a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls</a></li>
+<li><a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete</a></li>
+<li><a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code</a></li>
+<li><a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators</a></li>
+<li><a href="https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation">https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation</a></li>
+<li><a href="https://devblogs.microsoft.com/dotnet/configureawait-faq/">https://devblogs.microsoft.com/dotnet/configureawait-faq/</a></li>
+<li><a href="https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md">https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md</a></li></ul>
+</li></ul>
+<h2 id="revision-and-mock-interviews">Revision and Mock Interviews</h2>
+<p>Spaced revision:</p>
+<ul>
+<li><strong>Day 3 (3 min, inside session 3):</strong> without notes, explain what happens at <code>await</code> and why no thread is created (Day 1 material).</li>
+<li><strong>Day 5 (3 min, inside session 5):</strong> list the four bugs from Exercise 3 and the one-sentence fix for each, and state the <code>/sync</code> vs. <code>/async</code> result from Exercise 2.</li>
+<li><strong>Day 6 (10 min, session 6):</strong> re-read the red-flag list and the before-and-after <code>/orders/{id}</code> controller from the topic plan. Then rewrite the &quot;bad&quot; version from memory as the &quot;good&quot; version, including <code>CancellationToken</code> and <code>Task.WhenAll</code>.</li></ul>
+<p>Mock interview (Day 6, 20 min). Ideally ask someone to play the interviewer; otherwise record yourself. Answer each question in at most 2 minutes, then compare with the &quot;strong answer covers&quot; notes and mark any missed point:</p>
+<ol>
+<li>Question 1: what happens at <code>await</code> on an incomplete task.</li>
+<li>Question 3: <code>.Result</code> in a controller, and whether it deadlocks in ASP.NET Core.</li>
+<li>Question 6: three independent services, concurrency, and failure handling.</li>
+<li>Question 5: <code>async void</code> in ASP.NET Core.</li>
+<li>Question 7: <code>ConfigureAwait(false)</code> in app code vs. a library.</li>
+<li>Code reading: show the &quot;bad&quot; <code>/orders/{id}</code> controller and ask the candidate to find the problems and rewrite it (expected: async all the way, <code>Task.WhenAll</code> for independent I/O, flowed <code>CancellationToken</code>).</li></ol>
+<p>Revisit any question you marked as missed once more on a day before the interview, within the existing sessions; no extra time is scheduled.</p>
+<h2 id="sources">Sources</h2>
+<ul>
+<li>Asynchronous programming with async and await (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/</a></li>
+<li>Task asynchronous programming model, Threads (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/task-asynchronous-programming-model#threads</a></li>
+<li>Asynchronous programming scenarios (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model">https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/async-scenarios#explore-the-asynchronous-programming-model</a></li>
+<li>ASP.NET Core Best Practices, Avoid blocking calls (Microsoft Learn): <a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#avoid-blocking-calls</a></li>
+<li>ASP.NET Core Best Practices, Do not use the HttpContext after the request is complete (Microsoft Learn): <a href="https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete">https://learn.microsoft.com/aspnet/core/fundamentals/best-practices?view=aspnetcore-10.0#do-not-use-the-httpcontext-after-the-request-is-complete</a></li>
+<li>Common async/await bugs (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/common-async-bugs#deadlocks-from-blocking-on-async-code</a></li>
+<li>Consuming the Task-based Asynchronous Pattern (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators">https://learn.microsoft.com/dotnet/standard/asynchronous-programming-patterns/consuming-the-task-based-asynchronous-pattern#using-the-built-in-task-based-combinators</a></li>
+<li>Task cancellation (Microsoft Learn): <a href="https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation">https://learn.microsoft.com/dotnet/standard/parallel-programming/task-cancellation</a></li>
+<li>ConfigureAwait FAQ (.NET Blog): <a href="https://devblogs.microsoft.com/dotnet/configureawait-faq/">https://devblogs.microsoft.com/dotnet/configureawait-faq/</a></li>
+<li>AsyncGuidance, ASP.NET Core Diagnostic Scenarios (David Fowler, GitHub): <a href="https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md">https://github.com/davidfowl/AspNetCoreDiagnosticScenarios/blob/master/AsyncGuidance.md</a></li></ul>
+<h2 id="optional-extensions">Optional Extensions</h2>
+<p>No budget remains, so nothing here is scheduled.</p>
+<ul>
+<li><strong>Stretch question 8 (`ValueTask&lt;T&gt;`):</strong> practice it only if time is left after the mock interview. Research has no Microsoft Learn source for it.</li>
+<li><strong>`dotnet-counters` observation in Exercise 2:</strong> an optional aid; the counter names were not verified in research.</li>
+<li><strong>EF Core `DbContext` and concurrency:</strong> worth confirming in the EF Core documentation before relying on it in an interview. Research did not source it, so no link is given here.</li>
+<li><strong>Topics left out on purpose</strong> (beyond a Middle async/await interview and the 3-hour budget, per research): TPL Dataflow, Channels, <code>Parallel.ForEach</code> and PLINQ, custom awaiters, <code>IValueTaskSource</code>, thread-pool tuning, and lock-free concurrency.</li></ul>
+</main>
+<footer>
+<p>Rendered from <code>plan.md</code> (SHA-256 <code>fea645a658201567c53e09e1db7557f184b1c29fae9563df4e974d413a4af0c8</code>), the plan version the user approved. Sources are the ones cited in the validated research.</p>
+</footer>
+</body>
+</html>

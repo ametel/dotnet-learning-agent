@@ -1,0 +1,26 @@
+{
+  "selected": [
+    {
+      "agent": "data-researcher",
+      "topics": [
+        "EF Core performance: diagnosing and fixing slow data access",
+        "EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL",
+        "AsNoTracking and change tracking costs in EF Core",
+        "N+1 queries in EF Core: lazy loading, Include, and split queries",
+        "Database indexing for EF Core queries: defining indexes and reading query plans"
+      ],
+      "reason": "The user's only stated gap is EF Core performance, and they explicitly requested query optimization, AsNoTracking, N+1 queries and indexing."
+    }
+  ],
+  "not_selected": [
+    { "agent": "dotnet-researcher", "reason": "The user reports no C#, runtime or ASP.NET Core gap and requested no topic in that area." },
+    { "agent": "architecture-researcher", "reason": "The user requested no system design or architecture topic; EF Core performance is their only weak area." }
+  ],
+  "coverage": [
+    { "mandatory_topic": "EF Core performance", "research_topics": ["EF Core performance: diagnosing and fixing slow data access"] },
+    { "mandatory_topic": "Query optimization", "research_topics": ["EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL"] },
+    { "mandatory_topic": "AsNoTracking", "research_topics": ["AsNoTracking and change tracking costs in EF Core"] },
+    { "mandatory_topic": "N+1 queries", "research_topics": ["N+1 queries in EF Core: lazy loading, Include, and split queries"] },
+    { "mandatory_topic": "Indexing", "research_topics": ["Database indexing for EF Core queries: defining indexes and reading query plans"] }
+  ]
+}

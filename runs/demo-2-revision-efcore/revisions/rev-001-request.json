@@ -1,0 +1,9 @@
+{
+  "step": "plan",
+  "requested_by": "user",
+  "source": "advisory",
+  "advisory_findings": ["P1", "P2", "P3", "P4"],
+  "reason": "The user wants the four plan-validation advisory inconsistencies fixed and AsNoTracking moved earlier so it can be reviewed on a later day.",
+  "feedback": "P1: Either include the deferred paging STATISTICS IO comparison on Day 4 or remove the incorrect cross-reference from Day 2. P2: Move AsNoTracking earlier so it can be reviewed on a later day. P3: Make the Day 2 revision description consistent with its position in the schedule. P4: Explicitly document how topic priorities and time allocations were determined. Constraints: Preserve all five mandatory topics. Keep exactly five sessions of 30 minutes, totaling 150 minutes. Preserve the hands-on focus and short interview questions. Use only existing validated research. Do not rerun research agents or fetch new sources.",
+  "user_confirmation": "yes"
+}

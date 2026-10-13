@@ -1,0 +1,59 @@
+{
+  "report": "coverage",
+  "run_id": "20261012-193618-middle-backend-efcore-06d058",
+  "generated_by": "quality-validator",
+  "verdict": "pass",
+  "mandatory_topics": [
+    {
+      "topic": "EF Core performance",
+      "status": "covered",
+      "evidence": "research/data.md ### EF Core performance: diagnosing and fixing slow data access: measure-first diagnosis workflow (LogTo, command counts, TagWithCallSite, execution plans), root-cause list, pitfalls, example, 4 interview questions, 20-minute exercise; sourced to Learn performance/diagnosis/tags/logging pages."
+    },
+    {
+      "topic": "Query optimization",
+      "status": "covered",
+      "evidence": "research/data.md ### EF Core query optimization: projections, filtering, pagination, and inspecting generated SQL: projection, sargable filters (StartsWith vs EndsWith, column expressions), Take, offset vs keyset paging with unique ordering, ToQueryString; pitfalls, example, 4 interview questions, 25-minute exercise. Verified against Efficient Querying."
+    },
+    {
+      "topic": "AsNoTracking",
+      "status": "covered",
+      "evidence": "research/data.md ### AsNoTracking and change tracking costs in EF Core: tracking cost, context-wide NoTracking + AsTracking, no identity resolution and AsNoTrackingWithIdentityResolution, projection tracking rules, DetectChanges; pitfalls, example, 4 interview questions, 15-minute exercise. Verified against Efficient Querying (tracking section)."
+    },
+    {
+      "topic": "N+1 queries",
+      "status": "covered",
+      "evidence": "research/data.md ### N+1 queries in EF Core: lazy loading, Include, and split queries: N+1 mechanics and detection via logs, lazy loading opt-in, Include/filtered include/projection fixes, cartesian explosion and AsSplitQuery trade-offs, EF10 split-query ordering fix; pitfalls, example, 4 interview questions, 25-minute exercise. EF10 claim verified against What's New in EF Core 10."
+    },
+    {
+      "topic": "Indexing",
+      "status": "covered",
+      "evidence": "research/data.md ### Database indexing for EF Core queries: defining indexes and reading query plans: HasIndex/[Index], composite column order, unique/descending/filtered/included columns, write costs, reading SQL Server actual plans and STATISTICS IO; pitfalls, example, 4 interview questions, 25-minute exercise. Composite-order and write-cost claims verified against Efficient Querying."
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "severity": "advisory",
+      "category": "traceability",
+      "owner": "data-researcher",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/research/data.md",
+      "topic": "N+1 queries",
+      "message": "The claim 'Lazy loads are always synchronous I/O' (### N+1 queries ..., second bullet) is cited only to 'Lazy Loading with proxies' (learn.microsoft.com/ef/core/querying/related-data/lazy). That page, fetched in full, does not state that lazy loading is synchronous. The claim is widely accepted, but its cited source does not support it.",
+      "fix": "Cite a Learn page that states lazy loading is synchronous (for example the EF Core async programming page), or drop the word 'always' and keep the claim as an unsourced note under Gaps and Limitations."
+    },
+    {
+      "id": "C2",
+      "severity": "advisory",
+      "category": "other",
+      "owner": "data-researcher",
+      "artifact": "runs/20261012-193618-middle-backend-efcore-06d058/research/data.md",
+      "topic": "AsNoTracking",
+      "message": "The AsNoTracking example combines AsNoTracking() with a projection into an anonymous type with no entities, and the inline comment says the result is 'already untracked'. As a teaching example of AsNoTracking this is confusing, because AsNoTracking has no effect there.",
+      "fix": "Show AsNoTracking on a query that returns entity instances (for example ctx.Blogs.AsNoTracking().Where(...).ToListAsync()), and show the projection case separately as the 'no AsNoTracking needed' contrast."
+    }
+  ],
+  "optional_recommendations": [
+    "Derived optional topic 'Inspecting the SQL that EF Core generates (logging / query diagnostics)' is already covered inside the Query optimization and EF Core performance sections (ToQueryString, LogTo, TagWithCallSite); no separate research is needed.",
+    "Optionally mention the buffering vs. streaming trade-off (ToListAsync vs AsAsyncEnumerable) from Efficient Querying under Query optimization; it fits Middle+ level and the existing sources."
+  ]
+}

@@ -1,3 +1,6 @@
 .claude/hooks/*.ps1 text eol=lf
 .claude/hooks/*.json text eol=lf
-scripts/state.ps1 text eol=lf
+# Pinned by hash in .claude/settings.json (scripts/pin-hooks.ps1): keep the exact bytes.
+scripts/*.ps1 text eol=lf
+# Demo artifacts are byte-identical to their runs; their SHA-256 is in state.snapshot.json.
+runs/demo-*/** -text
