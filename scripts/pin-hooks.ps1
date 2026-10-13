@@ -33,6 +33,7 @@ $pinned = @(
     '.claude/hooks/approval-policy.json'
     'scripts/state.ps1'
     'scripts/render-guide.ps1'
+    'scripts/resume-run.ps1'
 )
 $hashes = [ordered]@{}
 foreach ($rel in $pinned) { $hashes[$rel] = (Get-FileHash -LiteralPath (Join-Path $ProjectDir $rel) -Algorithm SHA256).Hash }

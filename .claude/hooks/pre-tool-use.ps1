@@ -76,6 +76,7 @@ $script:Word = '(-[A-Za-z]+|[A-Za-z0-9_./:=@,+\-]+|"[^"`$;&|<>()]*"|''[^''`$;&<>
 $script:AllowedShell = @(
     "^pwsh -NoProfile -File scripts/state\.ps1 [a-z-]+( $script:Word)*$"
     "^pwsh -NoProfile -File scripts/render-guide\.ps1( $script:Word)*$"
+    "^pwsh -NoProfile -File scripts/resume-run\.ps1( $script:Word)*$"
     "^pwsh -NoProfile -File tests/run-tests\.ps1( $script:Word)*$"
     '^git (status|diff|log|show)( [A-Za-z0-9_./:=@,+\-~^]+)*$'
 )

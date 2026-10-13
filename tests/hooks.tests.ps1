@@ -464,7 +464,8 @@ Test-Case 'pin-hooks writes hash-pinned launchers; a changed hook file blocks to
     New-Item -ItemType Directory -Path (Join-Path $proj '.claude' 'hooks'), (Join-Path $proj 'scripts') -Force | Out-Null
     $repo = Join-Path $PSScriptRoot '..'
     Copy-Item -Path (Join-Path $repo '.claude' 'hooks' '*') -Destination (Join-Path $proj '.claude' 'hooks')
-    Copy-Item -LiteralPath (Join-Path $repo 'scripts' 'state.ps1'), (Join-Path $repo 'scripts' 'render-guide.ps1'), (Join-Path $repo 'scripts' 'pin-hooks.ps1') -Destination (Join-Path $proj 'scripts')
+    # Every script, so the fixture keeps up with the pinned list in pin-hooks.ps1.
+    Copy-Item -Path (Join-Path $repo 'scripts' '*.ps1') -Destination (Join-Path $proj 'scripts')
     '{ "permissions": { "allow": ["Bash(pwsh -NoProfile -File scripts/state.ps1:*)"] } }' | Set-Content -LiteralPath (Join-Path $proj '.claude' 'settings.json') -Encoding utf8NoBOM
     & pwsh -NoProfile -File (Join-Path $proj 'scripts' 'pin-hooks.ps1') -ProjectDir $proj | Out-Null
     Assert-Equal 0 $LASTEXITCODE

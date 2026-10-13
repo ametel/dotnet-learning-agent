@@ -10,7 +10,7 @@ intermediate artifact, asks for your approval, and renders the final guide as HT
 
 ## Status
 
-🚧 **Implementation in progress (Phase 5).** `/prepare-interview` runs these steps:
+🚧 **Implementation in progress (Phase 6).** `/prepare-interview` runs these steps:
 
 1. It gathers and confirms your requirements. The `requirements-formalizer` writes
    `requirements.md`, including your **mandatory topics** (your stated gaps and requested
@@ -36,6 +36,23 @@ text is HTML-escaped. It runs only through `state.ps1`'s render step: rendering 
 unless you approved exactly the current plan (its SHA-256), the guide embeds that hash, and
 its own hash is recorded so later tampering is detected. Changing the plan voids the approval
 and the guide.
+
+**Resuming after a session ends (Phase 6, CLAUDE.md §7).** Start Claude Code again and run:
+
+```
+/prepare-interview resume <run-id>
+```
+
+The coordinator runs `scripts/resume-run.ps1`, which works only through `state.ps1`:
+- it refuses to continue while an integrity violation is unresolved;
+- a step that was still running when the session ended is recorded as a **failed,
+  interrupted attempt** (it counts against that step's 3 attempts and is never treated as a
+  success);
+- it continues at the first unfinished step. Steps that passed are skipped, and research
+  that already passed is not run again;
+- awaiting approval, it shows the plan and waits for your new decision. Once approved, it
+  goes straight to rendering. A completed run reports its existing guide without rendering
+  it again.
 
 A failed gate re-runs only the agent that owns the problem (at most 3 attempts per
 artifact), and dependent steps are invalidated and regenerated.
@@ -231,7 +248,12 @@ local (`runs/` is git-ignored), so it is not committed.
   supported. Resume is not implemented (CLAUDE.md §7).
 - **The guide renders the planner's Markdown subset** (headings, tables, lists, code,
   bold, links); anything else appears as escaped text. One HTML guide per approval; no PDF
-  or other formats. No real run has rendered a guide yet (fixture tests only).
+  or other formats. One real run has been rendered (its first guide exposed a numbered-list
+  defect, since fixed and re-rendered).
+- **Resume costs an interrupted attempt.** Work a session did before it ended is not reused;
+  the step runs again on its next attempt. A guide written by an interrupted render must be
+  moved aside before resuming (it counts as an unauthorized `guide.html`). Resume is tested
+  with fixtures only.
 - **Pinned files and line endings.** The hook pins hash exact bytes. A clone that checks
   the pinned files out with CRLF line endings (for example `core.autocrlf=true`) must run
   `pin-hooks.ps1` once, or its tool calls are denied.
@@ -283,7 +305,14 @@ The exit code is 0 when every test passes. Every run works in a fresh directory 
 system temp folder, passed to `state.ps1` with `-RunsRoot`, and deletes it at the end.
 Nothing is written to `runs/`.
 
-- **Phase 5 render tests (5, `tests/render.tests.ps1`):** an approved plan renders with its
+- **Phase 6 resume tests (8, `tests/resume.tests.ps1`):** resume after requirements, after
+  research (fully and partly done; passed research untouched), after the plan, while
+  awaiting approval (no decision is made; already-submitted evidence is only handed to
+  `decide`), after approval (render next, approval unchanged), and after completion (guide
+  reported, not regenerated); interrupted steps (a validator, one of several research
+  agents, the planner in an open revision, and a last attempt that exhausts the step) are
+  recorded as failed attempts; resume is refused on an integrity violation.
+- **Phase 5 render tests (6, `tests/render.tests.ps1`):** an approved plan renders with its
   schedule, exercises, interview questions, sources, and navigation, and the run completes
   without changing any other artifact; rendering is refused without an approval (including
   a model-written `approval.json`), after a revision voided the approval, and after a manual
@@ -390,18 +419,14 @@ Nothing is written to `runs/`.
   After every operation the tests check that `state.json` parses. After every batch they
   check that no `state.lock` or temp file is left behind.
 
-Last full run (2026-10-13, Phase 5, Windows 11, PowerShell 7.6, `-Iterations 5`): 97 tests.
+Last full run (2026-10-13, Phase 6, Windows 11, PowerShell 7.6, `-Iterations 5`):
 
-- **95 of 97 passed** in about 26 minutes. The 2 failures were test fixtures, not product
-  code: a PostToolUse test assumed no other run in the shared test directory reported a
-  violation, and the pinning test did not copy the newly pinned `render-guide.ps1`. Both
-  tests were fixed, and all **89 sequential tests then passed** (`-SkipConcurrency`, about
-  23 minutes). The 8 concurrency tests passed in the full run and are unaffected by those
-  test-only changes.
+- **106 of 106 tests passed** in about 29 minutes, including the 8 resume tests and the
+  numbered-list regression test of the renderer.
 - **Overlap:** there were 60 concurrent batches. In all 60, every operation overlapped
-  every other one, and start times were spread by 2 ms on average (17 ms at most).
-- **Readers:** unlocked readers parsed `state.json` 9,513 times and saw 0 invalid reads
-  (11 reads hit a transient file-sharing error while opening the file; those are counted
+  every other one, and start times were spread by 1 ms on average (18 ms at most).
+- **Readers:** unlocked readers parsed `state.json` 9,598 times and saw 0 invalid reads
+  (12 reads hit a transient file-sharing error while opening the file; those are counted
   separately and the reader just reads again on its next loop).
 
 The concurrency tests exercise the research steps. The Phase 3A and 3B steps run one at a
@@ -455,7 +480,7 @@ See [CLAUDE.md](CLAUDE.md) for the architecture and design rules.
 | `.claude/commands/`| `/prepare-interview` command (requirements through the HTML guide) |
 | `.claude/skills/`  | Skills: `artifact-validator`, `html-guide-builder` |
 | `.claude/hooks/`   | Guardrail hooks: UserPromptSubmit, PreToolUse, PostToolUse |
-| `scripts/`         | Deterministic helpers (`state.ps1`, `render-guide.ps1`, `pin-hooks.ps1`) |
+| `scripts/`         | Deterministic helpers (`state.ps1`, `render-guide.ps1`, `resume-run.ps1`, `pin-hooks.ps1`) |
 | `tests/`           | Test suite (`run-tests.ps1`): state, approval, hooks, rendering |
 | `artifacts/`       | Shared reference material (planned)         |
 | `runs/`            | Per-run state and outputs; `runs/demo-*/` is committed |

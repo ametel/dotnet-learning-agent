@@ -45,10 +45,14 @@ when implementing or running any part of the workflow.
 > applied. Hooks are guardrails inside Claude Code, not an OS security boundary, and the
 > transcript check is not proof of identity (§12.5).
 > Phase 5 adds the **HTML renderer** (`scripts/render-guide.ps1`, §8.3) and two Skills,
-> `artifact-validator` and `html-guide-builder` (§13). The renderer is covered by fixture
-> tests; **no real run has rendered a guide yet.**
-> Not implemented yet: resume (§7) and revisions of anything other than the plan. Known gaps
-> are listed in §6.3, §8.4, §8.5, and §12.5.
+> `artifact-validator` and `html-guide-builder` (§13). On 2026-10-13 the approved EF Core run
+> was rendered for real. Its first guide lost every numbered list item (a renderer defect,
+> fixed with a regression test); it was discarded through the integrity resolution and
+> rendered again, without a new plan version or approval.
+> Phase 6 adds **resume** after a session restart (`/prepare-interview resume <run-id>`,
+> `scripts/resume-run.ps1`, §7), covered by fixture tests only.
+> Not implemented yet: revisions of anything other than the plan. Known gaps are listed in
+> §6.3, §7.1, §8.4, §8.5, and §12.5.
 > Do not describe anything as working until it exists and has been exercised.
 
 ---
@@ -496,10 +500,38 @@ punctuation, is trimmed.
   selected agents, the attempt counts, the input hashes of each artifact (§5.2), and the
   approval status.
 - The coordinator updates `state.json` **before and after** every step.
-- On resume, the coordinator reads `state.json`, skips steps already marked `passed`
-  whose artifacts still exist, validate, and are not stale (§5.2), and continues from the
-  first incomplete step.
 - A crash or interruption must never require starting over from requirements.
+
+**Resume (implemented, Phase 6):** `/prepare-interview resume <run-id>` in a new session.
+The coordinator runs `scripts/resume-run.ps1 -RunId <run-id>`, which adds no state of its own
+and only uses existing `state.ps1` transitions:
+
+1. `state.ps1 verify`. On an **integrity violation, resume is refused** until it is resolved
+   (§6.4). `verify` also re-applies invalidation (§5.2), approval voiding (§8.1), and the
+   workflow status, so stale steps become `pending` with a fresh budget, as usual.
+2. Every step still `running` was interrupted. Its attempt is recorded with
+   `state.ps1 fail` ("interrupted"): **a failed attempt**, counted against the step's 3
+   attempts, never treated as a success. An interrupted third attempt exhausts the step,
+   exactly like any other failure.
+3. `verify` again, then the next action is read from `workflow_status` and `current_step`:
+   steps that passed are skipped (research is never repeated), only unfinished research
+   steps are named, an open revision is returned with its base snapshot and feedback, a run
+   awaiting approval waits for a **new** user command (or, if the user had already submitted
+   one, it goes to `decide`, which checks it as always), an approved run goes to render
+   without asking again, and a completed run reports its guide without rendering it again.
+
+The coordinator's *Resume* section maps each action to the step that continues the run.
+
+### 7.1 Resume limitations
+
+- **An interruption costs an attempt.** The work done before the session ended is not
+  reused, even if the artifact looks complete; the owner runs again on the next attempt.
+- **A guide written by an interrupted render** (written, but `complete` never ran) is not
+  known to the run; `verify` reports it as an unauthorized `guide.html`, and resume is
+  refused until the user moves it aside.
+- **Subagents do not survive a restart.** Their partial output is not recovered; the
+  restarted step reruns them.
+- **Strict shell mode** (§12.2) applies as soon as the resumed run is updated again.
 
 ---
 
@@ -713,7 +745,7 @@ Inside a session, `/mcp` shows the server and its tools.
 .claude/commands/   /prepare-interview command        (through the user's decision; no HTML)
 .claude/skills/     reusable skills                   (artifact-validator, html-guide-builder; §13)
 .claude/hooks/      guardrail hooks                   (UserPromptSubmit, PreToolUse, PostToolUse; §12)
-scripts/            deterministic helpers             (state.ps1, render-guide.ps1, pin-hooks.ps1)
+scripts/            deterministic helpers             (state.ps1, render-guide.ps1, resume-run.ps1, pin-hooks.ps1)
 tests/              state.ps1 test suite              (run-tests.ps1; approval, hooks tests)
 artifacts/          shared reference material         (planned)
 runs/               per-run state and outputs
@@ -780,6 +812,7 @@ Shell commands (`Bash`, `PowerShell`):
 
 - Always allowed (no decision): `pwsh -NoProfile -File scripts/state.ps1 <verb> ...`,
   `pwsh -NoProfile -File scripts/render-guide.ps1 ...`,
+  `pwsh -NoProfile -File scripts/resume-run.ps1 ...`,
   `pwsh -NoProfile -File tests/run-tests.ps1 ...`, and `git status|diff|log|show ...`, each
   without shell operators (`;`, `&`, `|`, `>`, `<`, `` ` ``, `$`, parentheses), except `|`
   inside a single-quoted argument.
@@ -814,8 +847,8 @@ cannot undo the tool call.
 Claude Code runs hook scripts from disk on every call (Phase 4.0 spike), so a script changed
 mid-session would run unchecked. Each hook is therefore started by an inline launcher in
 `.claude/settings.json`, generated by `scripts/pin-hooks.ps1`, that checks the SHA-256 of
-`common.ps1`, the three hooks, `approval-policy.json`, `scripts/state.ps1`, and
-`scripts/render-guide.ps1` first:
+`common.ps1`, the three hooks, `approval-policy.json`, `scripts/state.ps1`,
+`scripts/render-guide.ps1`, and `scripts/resume-run.ps1` first:
 
 - PreToolUse: on a mismatch or crash, every tool call is denied (exit 2).
 - PostToolUse: the failure is reported (exit 2).
